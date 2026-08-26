@@ -183,11 +183,17 @@ Built so far:
 Hero and Brand Statement share one `SectionEditor`. Photos & Images and Settings
 appear in the sidebar marked "Soon".
 
+**Changes persist.** "Publish changes" validates the draft and writes it to the
+content store, and the storefront reads from that store rather than importing
+`/data`. `/data` is the store's *seed*: it supplies the content until something
+is published for the first time.
+
 > [!IMPORTANT]
-> **Nothing persists yet.** Admin state is seeded from `/data` and held in React
-> state. The full editing flow works, but "Publish changes" only clears the
-> unpublished-changes flag and a refresh restores the published values. Choosing
-> a real backend is a separate step — see `DECISIONS.md` §15.
+> The default store is a **JSON file** at `.content/site.json` (gitignored,
+> override with `CONTENT_STORE_PATH`). It needs a writable disk, so it works in
+> development and on a normal server or container but **not on a read-only
+> serverless filesystem such as Vercel's.** Deploying there means writing one
+> more `ContentStore` adapter — nothing else changes. See `DECISIONS.md` §15.
 
 Admin uses a **separate visual system** from the storefront: `admin-*` colour
 tokens, a dark sidebar, a light workspace, and one orange accent. Don't use

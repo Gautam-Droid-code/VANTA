@@ -1,19 +1,29 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { homepage as publishedHomepage } from "@/data/homepage";
-import { products as publishedProducts } from "@/data/products";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { useRouter } from "next/navigation";
+import { publishContent } from "@/app/admin/actions";
+import type { SiteContent } from "@/lib/contentStore";
 import type { HomepageContent, Product } from "@/data/types";
 
 /**
- * ADMIN DATA LAYER — IN-MEMORY ONLY.
+ * ADMIN DATA LAYER.
  *
- * Seeded from the real `/data` modules so every field, value and type is the
- * genuine schema. Edits are held in React state: the whole editing flow works,
- * but nothing is written anywhere and a reload restores the published values.
+ * Drafts are held in React state; publishing writes them through
+ * `publishContent` to the content store, which is what the storefront reads.
  *
- * "Publish" therefore only clears the dirty flag — it does not persist. Wiring
- * this to a real backend is a separate decision; see DECISIONS.md §15.
+ * The published baseline arrives as a prop from a server component that read
+ * the store — this provider no longer imports `/data`. Those modules are the
+ * store's seed, not its contents, so importing them here would make the admin
+ * show the original copy again the moment anything was published.
  */
 
 /** Human labels for the dirty-state banner, keyed by section. */
@@ -46,17 +56,41 @@ interface DraftState {
   isDirty: boolean;
   lastEditedAt: Date | null;
   lastPublishedAt: Date | null;
+
   publish: () => void;
   discard: () => void;
+  /** True while a publish is in flight — buttons disable against double-submits. */
+  isPublishing: boolean;
+  /** Set when the last publish failed; cleared when another one starts. */
+  publishError: string | null;
 }
 
 const DraftContext = createContext<DraftState | null>(null);
 
 const clone = <T,>(value: T): T => structuredClone(value);
 
-export function AdminDraftProvider({ children }: { children: React.ReactNode }) {
-  const [content, setContent] = useState<HomepageContent>(() => clone(publishedHomepage));
-  const [products, setProducts] = useState<Product[]>(() => clone(publishedProducts));
+export function AdminDraftProvider({
+  initial,
+  children,
+}: {
+  /** The published content, read from the store on the server. */
+  initial: SiteContent;
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+
+  const [content, setContent] = useState<HomepageContent>(() => clone(initial.homepage));
+  const [products, setProducts] = useState<Product[]>(() => clone(initial.products));
+
+  /**
+   * The last successfully published state, which is what "Discard" returns to.
+   * A ref, not state: it is only read inside callbacks, and re-rendering the
+   * whole admin because the baseline moved would serve no purpose.
+   */
+  const baseline = useRef<SiteContent>(clone(initial));
+
+  const [isPublishing, startPublishing] = useTransition();
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [lastEditedAt, setLastEditedAt] = useState<Date | null>(null);
@@ -106,16 +140,35 @@ export function AdminDraftProvider({ children }: { children: React.ReactNode }) 
   );
 
   const publish = useCallback(() => {
-    // No persistence in this phase — see the file header.
-    setDirty({});
-    setLastPublishedAt(new Date());
-  }, []);
+    setPublishError(null);
+    startPublishing(async () => {
+      const next: SiteContent = { homepage: content, products };
+      const result = await publishContent(next);
+
+      if (!result.ok) {
+        // The draft is left exactly as it was: a failed publish must never
+        // look like a successful one, and the editor should not lose work.
+        setPublishError(result.error);
+        return;
+      }
+
+      baseline.current = clone(next);
+      setDirty({});
+      setLastPublishedAt(result.publishedAt ? new Date(result.publishedAt) : new Date());
+      // Pull the server components back down so previews reflect what is live.
+      router.refresh();
+    });
+  }, [content, products, router]);
 
   const discard = useCallback(() => {
-    setContent(clone(publishedHomepage));
-    setProducts(clone(publishedProducts));
+    // Back to the last published state, not to `/data` — after a publish those
+    // are different things, and resetting to the seed would silently revert
+    // work that is already live.
+    setContent(clone(baseline.current.homepage));
+    setProducts(clone(baseline.current.products));
     setDirty({});
     setLastEditedAt(null);
+    setPublishError(null);
   }, []);
 
   const dirtySections = useMemo(
@@ -139,6 +192,8 @@ export function AdminDraftProvider({ children }: { children: React.ReactNode }) 
       lastPublishedAt,
       publish,
       discard,
+      isPublishing,
+      publishError,
     }),
     [
       content,
@@ -151,6 +206,8 @@ export function AdminDraftProvider({ children }: { children: React.ReactNode }) 
       lastPublishedAt,
       publish,
       discard,
+      isPublishing,
+      publishError,
     ],
   );
 

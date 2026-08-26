@@ -1,4 +1,4 @@
-import { getProducts, homepage } from "@/data";
+import { contentStore } from "@/lib/contentStore";
 import { Navbar } from "@/components/Navbar";
 import { Hero } from "@/components/Hero";
 import { Lookbook } from "@/components/Lookbook";
@@ -16,8 +16,12 @@ import { TiltOnScroll } from "@/components/scroll/TiltOnScroll";
 import { ChapterIndex } from "@/components/scroll/ChapterIndex";
 
 /**
- * The homepage is a thin composition layer: it reads content from `/data` and
- * hands each section exactly what it needs. No copy or imagery lives here.
+ * The homepage is a thin composition layer: it reads the published content from
+ * the content store and hands each section exactly what it needs. No copy or
+ * imagery lives here.
+ *
+ * It reads the store rather than importing `/data` directly so that publishing
+ * from `/admin` actually changes the page. `/data` is only the store's seed.
  *
  * The scroll scenes wrap sections rather than replacing them — each section is
  * still a server component, and the cinematic wrappers are client leaves that
@@ -40,8 +44,16 @@ const CHAPTERS = [
   { id: "chapter-categories", label: "Browse" },
 ];
 
-export default function HomePage() {
-  const railProducts = getProducts(homepage.productRail.productIds);
+export default async function HomePage() {
+  const { homepage, products } = await contentStore.read();
+
+  // Resolve the rail's product ids against the published catalogue, in the
+  // order the rail lists them. Unknown ids are dropped rather than rendered as
+  // holes; publish-time validation should mean there are none.
+  const byId = new Map(products.map((p) => [p.id, p]));
+  const railProducts = homepage.productRail.productIds
+    .map((id) => byId.get(id))
+    .filter((p) => p !== undefined);
 
   return (
     <div className="storefront-shell">
