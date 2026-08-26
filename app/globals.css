@@ -2,26 +2,109 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --ink: #0d0d0d;
+    --bone: #f5f5f0;
+    --nav-h: 3.5rem;
+    --bottom-nav-h: 4rem;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-ink font-sans text-bone antialiased;
+  }
+
+  ::selection {
+    @apply bg-flare-orange text-bone;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-bone ring-offset-2 ring-offset-ink;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  /* Storefront wrapper. The mobile bottom nav is fixed, so reserve its height
+     here (not on `body`) — otherwise /admin inherits the gap too. */
+  .storefront-shell {
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom));
+  }
+
+  @screen md {
+    .storefront-shell {
+      padding-bottom: 0;
+    }
+  }
+
+  /* Editorial display headline — used for every major section head. */
+  .headline {
+    @apply font-display font-black uppercase;
+  }
+
+  /* Italic serif counterpoint dropped inside a .headline. */
+  .headline em {
+    @apply font-accent font-normal italic;
+    text-transform: none;
+  }
+
+  /* Small tracked-out spec-sheet label. */
+  .eyebrow {
+    @apply font-sans text-label font-bold uppercase text-bone/50;
+  }
+
+  /* Horizontal snap carousel — native momentum scrolling, no JS animation. */
+  .snap-rail {
+    @apply flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .snap-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .snap-item {
+    @apply shrink-0 snap-center;
+  }
+
+  .snap-item-start {
+    @apply shrink-0 snap-start;
+  }
 }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
+  .edge-gutter {
+    @apply px-gutter lg:px-gutter-lg;
+  }
+
+  /* Visible to screen readers only. Used to extend an element's accessible
+     name without changing what's on screen — see DECISIONS.md §11. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
+/* Motion is opt-out at the CSS layer too, so anything Framer Motion doesn't
+   own (scroll-snap smoothing, transitions) also respects the preference. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
