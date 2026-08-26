@@ -5,6 +5,15 @@ const config: Config = {
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./data/**/*.{js,ts,jsx,tsx,mdx}",
+    /**
+     * `/lib` matters as much as the others: `lib/backdrops.ts` is the only
+     * place the backdrop classes are written down. Leaving it out meant
+     * Tailwind never saw `bg-flare-orange`, `bg-flare-sunset` or the graphite
+     * gradient, so those utilities were never generated and every section
+     * using them rendered with no backdrop at all. `bg-flare-red` survived
+     * only by coincidence — the cart badge in `Navbar` uses it literally.
+     */
+    "./lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
