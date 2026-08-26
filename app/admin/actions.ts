@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { siteContentSchema } from "@/lib/contentSchema";
+import { draftContentSchema, siteContentSchema } from "@/lib/contentSchema";
 import { contentStore, type SiteContent } from "@/lib/contentStore";
 import { mediaStore, type MediaItem } from "@/lib/mediaStore";
 import { processUpload } from "@/lib/processUpload";
@@ -54,6 +54,10 @@ export async function publishContent(payload: unknown): Promise<PublishResult> {
 
   try {
     await contentStore.write(parsed.data as SiteContent);
+    // The draft has become the published content, so it is no longer pending.
+    // Leaving it would make the admin reopen with a "you have unsaved changes"
+    // banner describing work that is already live.
+    await contentStore.clearDraft();
   } catch {
     // The message is deliberately vague: a filesystem path or errno on screen
     // tells a visitor more about the server than it tells the editor.
@@ -121,6 +125,55 @@ export async function deleteMedia(id: string): Promise<{ ok: boolean; error: str
     await mediaStore.remove(id);
   } catch {
     return { ok: false, error: "Couldn’t delete that image. Please try again." };
+  }
+  return { ok: true, error: null };
+}
+
+
+export interface DraftSaveResult {
+  ok: boolean;
+  error: string | null;
+  savedAt: string | null;
+}
+
+/**
+ * Saves work in progress without publishing it.
+ *
+ * Validated with `draftContentSchema`, which checks shape but not
+ * completeness. Someone who has cleared a headline to retype it has an empty
+ * required field for a moment, and refusing to save then would destroy exactly
+ * the work autosave exists to protect. Publishing applies the full rules.
+ */
+export async function saveDraft(payload: unknown): Promise<DraftSaveResult> {
+  if (!(await requireSession())) {
+    return { ok: false, error: EXPIRED, savedAt: null };
+  }
+
+  const parsed = draftContentSchema.safeParse(payload);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    return {
+      ok: false,
+      error: `Couldn’t save draft — ${first?.path.join(".") ?? "content"}: ${first?.message ?? "invalid value"}`,
+      savedAt: null,
+    };
+  }
+
+  try {
+    const record = await contentStore.writeDraft(parsed.data as SiteContent);
+    return { ok: true, error: null, savedAt: record.savedAt };
+  } catch {
+    return { ok: false, error: "Couldn’t save your draft. Please try again.", savedAt: null };
+  }
+}
+
+/** Throws the draft away. The published content is untouched. */
+export async function discardDraft(): Promise<{ ok: boolean; error: string | null }> {
+  if (!(await requireSession())) return { ok: false, error: EXPIRED };
+  try {
+    await contentStore.clearDraft();
+  } catch {
+    return { ok: false, error: "Couldn’t discard the draft. Please try again." };
   }
   return { ok: true, error: null };
 }

@@ -16,8 +16,20 @@ import type { SiteContent } from "./contentStore";
  * drift away from the schema it is meant to enforce.
  */
 
+/**
+ * Published content and drafts need different strictness, so the schema is
+ * built twice from one definition.
+ *
+ * A draft is work in progress. Someone clearing a headline to retype it has an
+ * empty required field for a few seconds, and refusing to save at that moment
+ * would lose exactly the work autosave exists to protect. Drafts therefore
+ * check *shape* — right fields, right types, valid enums — and skip the
+ * "must not be blank" rules. Publishing enforces the full set, so nothing
+ * incomplete can reach the storefront.
+ */
+function build(strict: boolean) {
 /** Trimmed, and required to still have content — a blank headline is a bug. */
-const nonEmpty = z.string().trim().min(1);
+const nonEmpty = strict ? z.string().trim().min(1) : z.string();
 /** Alt text is intentionally allowed to be empty: that marks it decorative. */
 const altText = z.string();
 
@@ -132,7 +144,7 @@ const homepageContent = z.object({
   footer: footerContent,
 }) satisfies z.ZodType<HomepageContent>;
 
-export const siteContentSchema = z
+return z
   .object({
     homepage: homepageContent,
     products: z.array(product),
@@ -143,6 +155,10 @@ export const siteContentSchema = z
    * publish could leave the rail pointing at a deleted product.
    */
   .superRefine((value, ctx) => {
+    // Cross-field rules are publish-time only: a draft mid-reorder can
+    // legitimately reference a product that hasn't been added back yet.
+    if (!strict) return;
+
     const ids = new Set(value.products.map((p) => p.id));
     value.homepage.productRail.productIds.forEach((id, i) => {
       if (!ids.has(id)) {
@@ -166,3 +182,10 @@ export const siteContentSchema = z
       seen.add(p.id);
     });
   }) satisfies z.ZodType<SiteContent>;
+}
+
+/** Full rules. Used by publish — nothing incomplete reaches the storefront. */
+export const siteContentSchema = build(true);
+
+/** Shape only. Used by draft saves, which must tolerate work in progress. */
+export const draftContentSchema = build(false);

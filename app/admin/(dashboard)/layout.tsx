@@ -29,10 +29,18 @@ export default async function AdminDashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [initial, initialMedia] = await Promise.all([contentStore.read(), mediaStore.list()]);
+  const [initial, initialMedia, initialDraft] = await Promise.all([
+    contentStore.read(),
+    mediaStore.list(),
+    contentStore.readDraft(),
+  ]);
 
   return (
-    <AdminDraftProvider initial={initial} initialMedia={initialMedia}>
+    <AdminDraftProvider
+      initial={initial}
+      initialMedia={initialMedia}
+      initialDraft={initialDraft}
+    >
       <AdminShell>{children}</AdminShell>
     </AdminDraftProvider>
   );

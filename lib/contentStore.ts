@@ -7,7 +7,7 @@
  */
 import "server-only";
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { homepage as seedHomepage } from "@/data/homepage";
 import { products as seedProducts } from "@/data/products";
@@ -29,9 +29,27 @@ export interface SiteContent {
  * so moving to Postgres/Redis/a CMS means writing one more adapter — no route,
  * component or editor changes.
  */
+/** An in-progress draft, plus when it was last saved. */
+export interface DraftRecord {
+  content: SiteContent;
+  savedAt: string;
+}
+
 export interface ContentStore {
   read(): Promise<SiteContent>;
   write(next: SiteContent): Promise<void>;
+
+  /**
+   * The unpublished draft, or null when there isn't one.
+   *
+   * Kept in a separate document from the published content rather than as a
+   * flag on it. Published content is what the storefront reads on every
+   * request; a draft must not be able to affect it even briefly, and keeping
+   * them in one file makes that a matter of care rather than structure.
+   */
+  readDraft(): Promise<DraftRecord | null>;
+  writeDraft(next: SiteContent): Promise<DraftRecord>;
+  clearDraft(): Promise<void>;
 }
 
 /** The starting state: whatever `/data` currently holds. */
@@ -52,7 +70,18 @@ export function seedContent(): SiteContent {
  * behind — a reader sees either the old file or the new one.
  */
 class FileContentStore implements ContentStore {
-  constructor(private readonly file: string) {}
+  constructor(
+    private readonly file: string,
+    private readonly draftFile: string,
+  ) {}
+
+  /** Temp-file-then-rename, so a crash can't leave a truncated document. */
+  private async atomicWrite(target: string, body: string): Promise<void> {
+    await mkdir(path.dirname(target), { recursive: true });
+    const tmp = `${target}.${process.pid}.tmp`;
+    await writeFile(tmp, body, "utf8");
+    await rename(tmp, target);
+  }
 
   async read(): Promise<SiteContent> {
     try {
@@ -66,10 +95,34 @@ class FileContentStore implements ContentStore {
   }
 
   async write(next: SiteContent): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    await writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
-    await rename(tmp, this.file);
+    await this.atomicWrite(this.file, JSON.stringify(next, null, 2));
+  }
+
+  async readDraft(): Promise<DraftRecord | null> {
+    try {
+      return JSON.parse(await readFile(this.draftFile, "utf8")) as DraftRecord;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      // A corrupt draft must not lock the admin out. Published content is
+      // intact either way, so the safe move is to behave as if there is no
+      // draft rather than to throw on every page load.
+      return null;
+    }
+  }
+
+  async writeDraft(next: SiteContent): Promise<DraftRecord> {
+    const record: DraftRecord = { content: next, savedAt: new Date().toISOString() };
+    await this.atomicWrite(this.draftFile, JSON.stringify(record, null, 2));
+    return record;
+  }
+
+  async clearDraft(): Promise<void> {
+    try {
+      await unlink(this.draftFile);
+    } catch (error) {
+      // Already gone is the desired end state, not a failure.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 }
 
@@ -80,4 +133,7 @@ class FileContentStore implements ContentStore {
 const STORE_PATH =
   process.env.CONTENT_STORE_PATH ?? path.join(process.cwd(), ".content", "site.json");
 
-export const contentStore: ContentStore = new FileContentStore(STORE_PATH);
+/** Sits beside the published document, never inside it. */
+const DRAFT_PATH = path.join(path.dirname(STORE_PATH), "draft.json");
+
+export const contentStore: ContentStore = new FileContentStore(STORE_PATH, DRAFT_PATH);

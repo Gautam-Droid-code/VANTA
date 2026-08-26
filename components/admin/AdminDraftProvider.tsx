@@ -4,14 +4,15 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
-import { publishContent } from "@/app/admin/actions";
-import type { SiteContent } from "@/lib/contentStore";
+import { discardDraft, publishContent, saveDraft } from "@/app/admin/actions";
+import type { DraftRecord, SiteContent } from "@/lib/contentStore";
 import type { MediaItem } from "@/lib/mediaStore";
 import type { HomepageContent, Product } from "@/data/types";
 
@@ -74,6 +75,15 @@ interface DraftState {
   media: MediaItem[];
   addMedia: (item: MediaItem) => void;
   dropMedia: (id: string) => void;
+
+  /** "saving" while a draft write is in flight, "error" if the last one failed. */
+  draftStatus: "idle" | "saving" | "saved" | "error";
+  /** When the draft was last written to the server. */
+  draftSavedAt: Date | null;
+  /** Force a save now, rather than waiting for the debounce. */
+  saveDraftNow: () => void;
+  /** True when this session restored a draft left from an earlier one. */
+  restoredDraft: boolean;
 }
 
 const DraftContext = createContext<DraftState | null>(null);
@@ -83,18 +93,31 @@ const clone = <T,>(value: T): T => structuredClone(value);
 export function AdminDraftProvider({
   initial,
   initialMedia,
+  initialDraft,
   children,
 }: {
   /** The published content, read from the store on the server. */
   initial: SiteContent;
   /** The uploaded photo library, read from the media store on the server. */
   initialMedia: MediaItem[];
+  /** A draft left over from an earlier session, if there is one. */
+  initialDraft: DraftRecord | null;
   children: React.ReactNode;
 }) {
   const router = useRouter();
 
-  const [content, setContent] = useState<HomepageContent>(() => clone(initial.homepage));
-  const [products, setProducts] = useState<Product[]>(() => clone(initial.products));
+  /**
+   * A leftover draft wins over published content as the starting state. That is
+   * the whole point of saving one: the editor comes back to what they were
+   * working on, not to what the site currently shows. `baseline` still tracks
+   * the published values, so Discard has somewhere real to go back to.
+   */
+  const [content, setContent] = useState<HomepageContent>(() =>
+    clone(initialDraft ? initialDraft.content.homepage : initial.homepage),
+  );
+  const [products, setProducts] = useState<Product[]>(() =>
+    clone(initialDraft ? initialDraft.content.products : initial.products),
+  );
 
   /**
    * The last successfully published state, which is what "Discard" returns to.
@@ -114,7 +137,28 @@ export function AdminDraftProvider({
     [],
   );
 
-  const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const [draftStatus, setDraftStatus] = useState<DraftState["draftStatus"]>("idle");
+  const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(
+    initialDraft ? new Date(initialDraft.savedAt) : null,
+  );
+  const [restoredDraft, setRestoredDraft] = useState(initialDraft !== null);
+
+  /**
+   * A restored draft is already different from what's published, so the
+   * unpublished-changes bar has to be showing when the page opens — otherwise
+   * there'd be no way to publish or discard it.
+   */
+  const [dirty, setDirty] = useState<Record<string, boolean>>(() => {
+    if (!initialDraft) return {};
+    const marked: Record<string, boolean> = {};
+    (Object.keys(SECTION_LABELS) as Array<keyof typeof SECTION_LABELS>).forEach((key) => {
+      const before = key === "products" ? initial.products : initial.homepage[key];
+      const after =
+        key === "products" ? initialDraft.content.products : initialDraft.content.homepage[key];
+      if (JSON.stringify(before) !== JSON.stringify(after)) marked[key] = true;
+    });
+    return marked;
+  });
   const [lastEditedAt, setLastEditedAt] = useState<Date | null>(null);
   const [lastPublishedAt, setLastPublishedAt] = useState<Date | null>(null);
 
@@ -161,6 +205,59 @@ export function AdminDraftProvider({
     [touch],
   );
 
+  /**
+   * AUTOSAVE.
+   *
+   * Keyed off `isDirty` rather than firing on mount, so simply opening the
+   * admin never writes a draft — only an actual edit does.
+   *
+   * Debounced: a text field fires on every keystroke, and one request per
+   * character would be pointless traffic and a race between responses. One
+   * second after typing stops is soon enough that almost nothing is at risk,
+   * and rare enough to stay cheap.
+   *
+   */
+  const dirtyKeys = Object.keys(dirty).filter((k) => dirty[k]);
+  const hasChanges = dirtyKeys.length > 0;
+
+  const writeDraft = useCallback(async (payload: SiteContent) => {
+    setDraftStatus("saving");
+    const result = await saveDraft(payload);
+    if (!result.ok) {
+      setDraftStatus("error");
+      return;
+    }
+    setDraftStatus("saved");
+    setDraftSavedAt(result.savedAt ? new Date(result.savedAt) : new Date());
+  }, []);
+
+  useEffect(() => {
+    if (!hasChanges) return;
+    const timer = setTimeout(() => {
+      void writeDraft({ homepage: content, products });
+    }, 1000);
+    return () => clearTimeout(timer);
+    // `content`/`products` are the trigger: any edit restarts the timer.
+  }, [content, products, hasChanges, writeDraft]);
+
+  const saveDraftNow = useCallback(() => {
+    void writeDraft({ homepage: content, products });
+  }, [content, products, writeDraft]);
+
+  /**
+   * Last line of defence. Autosave covers everything except the second between
+   * the final keystroke and the debounce firing — closing the tab in that
+   * window would still lose it. This asks the browser to confirm, and only
+   * while there is genuinely unsaved work.
+   */
+  useEffect(() => {
+    const unsaved = hasChanges && draftStatus !== "saved";
+    if (!unsaved) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasChanges, draftStatus]);
+
   const publish = useCallback(() => {
     setPublishError(null);
     startPublishing(async () => {
@@ -176,6 +273,9 @@ export function AdminDraftProvider({
 
       baseline.current = clone(next);
       setDirty({});
+      setDraftStatus("idle");
+      setDraftSavedAt(null);
+      setRestoredDraft(false);
       setLastPublishedAt(result.publishedAt ? new Date(result.publishedAt) : new Date());
       // Pull the server components back down so previews reflect what is live.
       router.refresh();
@@ -191,6 +291,13 @@ export function AdminDraftProvider({
     setDirty({});
     setLastEditedAt(null);
     setPublishError(null);
+    setDraftStatus("idle");
+    setDraftSavedAt(null);
+    setRestoredDraft(false);
+    // Discard has to reach the server too. Clearing only local state would
+    // leave the saved draft behind, and the next page load would restore the
+    // very changes that were just thrown away.
+    void discardDraft();
   }, []);
 
   const dirtySections = useMemo(
@@ -219,6 +326,10 @@ export function AdminDraftProvider({
       media,
       addMedia,
       dropMedia,
+      draftStatus,
+      draftSavedAt,
+      saveDraftNow,
+      restoredDraft,
     }),
     [
       content,
@@ -236,6 +347,10 @@ export function AdminDraftProvider({
       media,
       addMedia,
       dropMedia,
+      draftStatus,
+      draftSavedAt,
+      saveDraftNow,
+      restoredDraft,
     ],
   );
 
