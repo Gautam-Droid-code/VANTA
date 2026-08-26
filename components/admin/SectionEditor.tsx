@@ -105,10 +105,7 @@ export function SectionEditor({
               <Field
                 label="Body copy"
                 htmlFor="description"
-                /* Line breaks survive to the storefront (the rendered copy uses
-                   `whitespace-pre-line`), so say so — otherwise pressing Enter
-                   looks like it might be discarded. */
-                hint={`${value.description.length} characters · press Enter to start a new line`}
+                hint={`${value.description.length} characters`}
               >
                 <TextArea
                   id="description"
@@ -117,6 +114,20 @@ export function SectionEditor({
                   onChange={(e) => patch({ description: e.target.value })}
                 />
               </Field>
+
+              {/* Spelled out rather than left as a terse hint. The person using
+                  this has no reason to know whether a line break survives to
+                  the website — and until it visibly does, pressing Enter looks
+                  like it might be throwing their formatting away. */}
+              <p className="mt-3 rounded-lg border border-admin-border bg-admin-surface-alt px-3 py-2.5 text-xs leading-relaxed text-admin-muted">
+                <span className="font-semibold text-admin-ink">Starting a new line:</span>{" "}
+                put your cursor where you want the text to break and press{" "}
+                <kbd className="rounded border border-admin-border bg-admin-surface px-1.5 py-0.5 font-sans text-[11px] font-semibold text-admin-ink">
+                  Enter
+                </kbd>
+                . The break will appear on the website exactly where you put it.
+                Leave a blank line to put a gap between paragraphs.
+              </p>
             </div>
           </Card>
 
