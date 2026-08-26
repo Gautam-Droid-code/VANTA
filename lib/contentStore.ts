@@ -1,3 +1,12 @@
+/**
+ * Server-only. Importing this from a client component is a build error naming
+ * this file, rather than a native module silently ending up in the browser
+ * bundle — which fails as an unrelated "cannot read properties of undefined"
+ * where the component is rendered. Client-safe constants live in
+ * `lib/mediaLimits.ts`.
+ */
+import "server-only";
+
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { homepage as seedHomepage } from "@/data/homepage";

@@ -1,3 +1,12 @@
+/**
+ * Server-only. Importing this from a client component is a build error naming
+ * this file, rather than a native module silently ending up in the browser
+ * bundle — which fails as an unrelated "cannot read properties of undefined"
+ * where the component is rendered. Client-safe constants live in
+ * `lib/mediaLimits.ts`.
+ */
+import "server-only";
+
 import { randomBytes } from "node:crypto";
 import sharp, { type Metadata, type Sharp } from "sharp";
 import type { MediaItem } from "./mediaStore";
