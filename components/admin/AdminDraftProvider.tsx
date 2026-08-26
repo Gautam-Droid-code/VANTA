@@ -12,6 +12,7 @@ import {
 import { useRouter } from "next/navigation";
 import { publishContent } from "@/app/admin/actions";
 import type { SiteContent } from "@/lib/contentStore";
+import type { MediaItem } from "@/lib/mediaStore";
 import type { HomepageContent, Product } from "@/data/types";
 
 /**
@@ -63,6 +64,16 @@ interface DraftState {
   isPublishing: boolean;
   /** Set when the last publish failed; cleared when another one starts. */
   publishError: string | null;
+
+  /**
+   * The uploaded photo library. Unlike content, media is NOT draft state —
+   * an upload is written immediately and is live whether or not you publish.
+   * Deferring it would mean holding file bytes in browser memory until publish,
+   * and a draft that references an image nobody else can see yet.
+   */
+  media: MediaItem[];
+  addMedia: (item: MediaItem) => void;
+  dropMedia: (id: string) => void;
 }
 
 const DraftContext = createContext<DraftState | null>(null);
@@ -71,10 +82,13 @@ const clone = <T,>(value: T): T => structuredClone(value);
 
 export function AdminDraftProvider({
   initial,
+  initialMedia,
   children,
 }: {
   /** The published content, read from the store on the server. */
   initial: SiteContent;
+  /** The uploaded photo library, read from the media store on the server. */
+  initialMedia: MediaItem[];
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -91,6 +105,14 @@ export function AdminDraftProvider({
 
   const [isPublishing, startPublishing] = useTransition();
   const [publishError, setPublishError] = useState<string | null>(null);
+
+  const [media, setMedia] = useState<MediaItem[]>(initialMedia);
+  // Newest first, matching the store's own ordering.
+  const addMedia = useCallback((item: MediaItem) => setMedia((m) => [item, ...m]), []);
+  const dropMedia = useCallback(
+    (id: string) => setMedia((m) => m.filter((x) => x.id !== id)),
+    [],
+  );
 
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [lastEditedAt, setLastEditedAt] = useState<Date | null>(null);
@@ -194,6 +216,9 @@ export function AdminDraftProvider({
       discard,
       isPublishing,
       publishError,
+      media,
+      addMedia,
+      dropMedia,
     }),
     [
       content,
@@ -208,6 +233,9 @@ export function AdminDraftProvider({
       discard,
       isPublishing,
       publishError,
+      media,
+      addMedia,
+      dropMedia,
     ],
   );
 

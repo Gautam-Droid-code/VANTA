@@ -382,6 +382,62 @@ unique.
 | Footer is "tagline, links list" | `FooterContent` also has `wordmark` and `copyright` | All four edited |
 | Categories: "name, item count, thumbnail" | `Category` also has `id` and `href`; the section also has a `heading` | All included — `heading` edited above the table, `id` auto, `href` marked "Coming soon" |
 
+## 15b. Image uploads
+
+`ImagePicker` uploads real files. The pipeline is `processUpload` →
+`mediaStore`, served back by `app/media/[id]/route.ts`.
+
+**Uploads are stored outside `/public`.** `/public` is a curated, build-time
+asset directory — WebP only, originals in `/assets-src`. Runtime-mutable
+uploads mixed into it would blur that line, so they go under `.content/`
+alongside the content store, and reach the browser through a route instead.
+
+**Uploads are not draft state.** The file is written and live the moment it
+succeeds, whether or not the surrounding section is published. The alternative —
+holding bytes in the browser until publish — would mean a draft referencing an
+image the server has never seen, and losing the upload on a refresh.
+
+### An upload is hostile until decoded
+
+The filename, the extension and the Content-Type header are all set by the
+client, so none of them is evidence of anything. The only thing that establishes
+a file is an image is a decoder accepting it. Every check runs against sharp's
+reading of the bytes:
+
+- **Re-encoded, always.** Decoding to pixels and writing a fresh WebP means
+  nothing of the original container survives — no EXIF (phone photos carry GPS
+  coordinates), no colour-profile payloads, no data appended after the image to
+  make a polyglot file. What gets served is a file this process wrote.
+  `rotate()` applies EXIF orientation *before* that metadata is dropped, or
+  portrait phone photos come out sideways.
+- **SVG is refused.** It is not a raster image but a document that can carry
+  `<script>`; serving one from our own origin would be a stored-XSS primitive.
+  GIF is refused too, for the duller reason that re-encoding to still WebP
+  silently destroys the animation.
+- **`limitInputPixels` is set.** A small, highly compressed file can decode to
+  gigabytes. The file-size check cannot catch that — the danger is in the
+  decoded size, not the encoded size.
+- **Stored names are generated ids, never the client's filename.** The filename
+  is sanitised only to be shown as a label. Nothing user-supplied reaches the
+  filesystem.
+- **The serving route builds no path from the request.** The id must match the
+  generated-id pattern and then be present in the manifest; a path is only
+  constructed from an id already known to be ours.
+
+Verified against the real cases: EXIF-bearing JPEG comes out with no EXIF and no
+trace of the probe string in the bytes; an SVG carrying `<script>` is rejected;
+a text file named `.png` is rejected; `../../../etc/passwd.png` yields the label
+"passwd"; and `/media/` returns 404 for unknown and malformed ids.
+
+### What this is not
+
+It is not a media library. There is no `/admin/photos` page — upload and delete
+live inside the picker, and the sidebar entry stays marked "Soon". Delete does
+not check whether an image is still referenced by published content: that would
+need a full content scan on every delete, and a reference can be added a moment
+later anyway. The picker warns; a missing image degrades to a broken tile, not a
+broken page.
+
 ## 16. Admin component map
 
 | Component | Role |

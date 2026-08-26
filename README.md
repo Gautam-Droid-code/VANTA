@@ -95,12 +95,21 @@ Full rationale and the current server/client split are in `DECISIONS.md` §13.
 
 ### Adding an image
 
+**From the admin:** every image field has an **Upload photo** button. The file is
+converted to WebP, capped at 2400px on its longest edge, stripped of metadata,
+and stored under `.content/uploads/`, served from `/media/<id>`. Uploads are
+saved immediately — they do not wait for "Publish changes".
+
+**As a committed asset** (for imagery that should live in the repo):
 `/public/images` is WebP-only. Convert first, keep the original in
 `/assets-src/images`, then reference the `.webp` from `/data`:
 
 ```bash
 npx sharp-cli --input assets-src/images/new-shot.png --output public/images/ --format webp --quality 82
 ```
+
+The two are deliberately separate. `/public` is a curated, build-time asset
+directory; uploads are runtime data and stay out of it.
 
 ## Editing content
 

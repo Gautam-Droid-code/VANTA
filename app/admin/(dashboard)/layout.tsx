@@ -1,6 +1,7 @@
 import { AdminDraftProvider } from "@/components/admin/AdminDraftProvider";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { contentStore } from "@/lib/contentStore";
+import { mediaStore } from "@/lib/mediaStore";
 
 /**
  * Dashboard chrome. Everything under this group is behind the session check in
@@ -28,10 +29,10 @@ export default async function AdminDashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const initial = await contentStore.read();
+  const [initial, initialMedia] = await Promise.all([contentStore.read(), mediaStore.list()]);
 
   return (
-    <AdminDraftProvider initial={initial}>
+    <AdminDraftProvider initial={initial} initialMedia={initialMedia}>
       <AdminShell>{children}</AdminShell>
     </AdminDraftProvider>
   );
