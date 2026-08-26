@@ -51,7 +51,11 @@ export function Hero({ hero }: HeroProps) {
           </div>
 
           <HeroCopy className="lg:mt-10 lg:max-w-md">
-            <p className="max-w-prose text-base leading-relaxed text-bone/70">
+            {/* `whitespace-pre-line`: the description is a plain string, and an
+                editor pressing Enter in the admin expects that break to appear.
+                Without it HTML collapses the newline to a space and the
+                formatting is silently discarded. */}
+            <p className="max-w-prose whitespace-pre-line text-base leading-relaxed text-bone/70">
               {hero.description}
             </p>
             <div className="mt-8">

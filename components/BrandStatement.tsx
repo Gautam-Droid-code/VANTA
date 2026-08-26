@@ -54,7 +54,7 @@ export function BrandStatement({ content }: BrandStatementProps) {
           <RevealItem
             variants={fadeUpSm}
             as="p"
-            className="mt-6 max-w-prose text-base leading-relaxed text-bone/70"
+            className="mt-6 max-w-prose whitespace-pre-line text-base leading-relaxed text-bone/70"
           >
             {content.description}
           </RevealItem>

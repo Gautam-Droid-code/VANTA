@@ -105,7 +105,10 @@ export function SectionEditor({
               <Field
                 label="Body copy"
                 htmlFor="description"
-                hint={`${value.description.length} characters`}
+                /* Line breaks survive to the storefront (the rendered copy uses
+                   `whitespace-pre-line`), so say so — otherwise pressing Enter
+                   looks like it might be discarded. */
+                hint={`${value.description.length} characters · press Enter to start a new line`}
               >
                 <TextArea
                   id="description"

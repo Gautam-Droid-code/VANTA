@@ -77,7 +77,7 @@ export function SectionPreview({
                 </div>
               </div>
               <div className="p-4">
-                <p className="text-[11px] leading-relaxed text-bone/70">{description}</p>
+                <p className="whitespace-pre-line text-[11px] leading-relaxed text-bone/70">{description}</p>
                 <span className="mt-4 block w-full rounded-full bg-bone px-4 py-2.5 text-center text-[10px] font-bold uppercase tracking-[0.15em] text-ink">
                   {ctaLabel}
                 </span>
@@ -88,7 +88,7 @@ export function SectionPreview({
               <div>
                 {eyebrow && <p className="eyebrow mb-3">{eyebrow}</p>}
                 <PreviewHeadline lines={headline} className="text-[26px] text-bone" />
-                <p className="mt-4 max-w-[28ch] text-[11px] leading-relaxed text-bone/70">
+                <p className="mt-4 max-w-[28ch] whitespace-pre-line text-[11px] leading-relaxed text-bone/70">
                   {description}
                 </p>
                 <span className="mt-5 inline-block rounded-full bg-bone px-4 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-ink">
