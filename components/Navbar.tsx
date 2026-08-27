@@ -63,7 +63,7 @@ export function Navbar({ nav }: NavbarProps) {
         */}
         <nav
           aria-label="Primary"
-          className="mx-auto flex h-[var(--nav-h)] max-w-container items-center gap-3 px-gutter lg:gap-8 lg:px-gutter-lg"
+          className="mx-auto flex h-[var(--nav-h)] max-w-container items-center gap-3 px-gutter lg:gap-5 lg:px-gutter-lg"
         >
           <motion.button
             type="button"
@@ -93,7 +93,7 @@ export function Navbar({ nav }: NavbarProps) {
           <form
             role="search"
             onSubmit={(e) => e.preventDefault()}
-            className="relative ml-auto hidden min-w-0 flex-1 sm:block lg:ml-0 lg:max-w-xl"
+            className="relative ml-auto hidden min-w-0 flex-1 sm:block lg:ml-0"
           >
             <label htmlFor="site-search" className="sr-only">
               Search
