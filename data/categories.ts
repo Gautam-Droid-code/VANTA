@@ -1,11 +1,17 @@
 import type { Category } from "./types";
 
+/**
+ * `itemCount` mirrors how many products carry each `categoryId`. It is stored
+ * rather than derived because the homepage rows render without loading the
+ * catalogue — but that means it has to be updated when products are added.
+ */
+
 export const categories: Category[] = [
   {
     id: "jackets",
     name: "Jackets",
     href: "/collections/jackets",
-    itemCount: 24,
+    itemCount: 12,
     image: {
       src: "/images/product-shell-jacket.webp",
       alt: "",
@@ -17,7 +23,7 @@ export const categories: Category[] = [
     id: "parkas",
     name: "Parkas",
     href: "/collections/parkas",
-    itemCount: 12,
+    itemCount: 8,
     image: {
       src: "/images/model-02.webp",
       alt: "",
@@ -29,7 +35,7 @@ export const categories: Category[] = [
     id: "tops",
     name: "Tops",
     href: "/collections/tops",
-    itemCount: 38,
+    itemCount: 10,
     image: {
       src: "/images/model-03.webp",
       alt: "",
@@ -41,7 +47,7 @@ export const categories: Category[] = [
     id: "pants",
     name: "Pants",
     href: "/collections/pants",
-    itemCount: 19,
+    itemCount: 8,
     image: {
       src: "/images/product-cargo-pant.webp",
       alt: "",
@@ -53,7 +59,7 @@ export const categories: Category[] = [
     id: "bags",
     name: "Bags",
     href: "/collections/bags",
-    itemCount: 9,
+    itemCount: 7,
     image: {
       src: "/images/model-01.webp",
       alt: "",

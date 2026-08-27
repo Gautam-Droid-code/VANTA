@@ -77,6 +77,17 @@ export interface BrandStatementContent {
 export interface Product {
   id: string;
   name: string;
+  /**
+   * Which `Category` this belongs to, by `Category.id`.
+   *
+   * The first field added to this schema since it was written. Collection
+   * pages need to know what belongs in them, and the alternative — listing
+   * product ids on each category, the way `ProductRail` does — puts the
+   * relationship somewhere a product editor cannot see it. A product knowing
+   * its own category is also the answer that stays right when there are
+   * hundreds of them.
+   */
+  categoryId: string;
   /** Whole rupees. */
   price: number;
   /** Whole rupees; when set and above `price`, shown struck through. */

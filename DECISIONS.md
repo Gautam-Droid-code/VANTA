@@ -719,6 +719,56 @@ viewport midpoint. Verified stepping cleanly 0→1→2→3→4 across the page.
 
 ---
 
+## 19. Collection and product pages, and the first schema addition
+
+`/collections/[slug]` and `/products/[slug]` exist, so the nav, the product
+rail and the category rows lead somewhere. Both read the content store, not
+`/data`, so a product edited in `/admin` appears on them.
+
+### `Product.categoryId` — the first field added to `data/types.ts`
+
+§16 recorded that the admin had never added a field to the schema. This is not
+the admin: collection pages need to know what belongs in them, and there were
+only two ways to express it. Listing product ids on each category (the way
+`ProductRail` does) puts the relationship somewhere a product editor cannot
+see, and it is the answer that stops scaling first. A product knowing its own
+category is the one that stays right at a few hundred products.
+
+Publishing now enforces that every `categoryId` resolves to a real category,
+and the admin's product drawer picks from the live category list, so an
+invalid value is not expressible through the UI either.
+
+### Sale and New are views, not categories
+
+`/collections/new` and `/collections/sale` are computed from the catalogue —
+`badge === "NEW"`, and a `compareAtPrice` above `price`. Neither is a group a
+product belongs to: "on sale" is a fact about a price, and asking an editor to
+tag it as well would be asking them to keep two things in sync by hand.
+`/collections/all` is the same idea with no filter.
+
+### These pages are deliberately quiet
+
+No pinned scenes, no camera moves, no environment morph. The cinematic layer is
+the homepage's argument; a listing page is where someone compares garments and
+reads prices, and scroll-hijacking works against that. They use `Reveal` only.
+
+### Imagery is placeholder, and the alt text knows it
+
+There are five photographs and 45 products, so shots repeat. Alt text describes
+**the garment the entry is for**, not the photograph standing in for it — so
+replacing a photo through `/admin` does not leave a false description behind.
+
+Not sourced from anywhere: reference imagery was requested from Pinterest, and
+those photographs belong to other brands and photographers. Real photography
+goes in through the uploader.
+
+### `itemCount` is stored, not derived
+
+`Category.itemCount` mirrors the number of products carrying that `categoryId`.
+It stays stored because the homepage rows render without loading the catalogue
+— but it has to be updated when products are added, and nothing enforces that
+yet.
+
 ## Known issues / follow-ups
 
 - **Product imagery is doubled up.** There are only 5 photos in the Stitch
@@ -766,11 +816,16 @@ viewport midpoint. Verified stepping cleanly 0→1→2→3→4 across the page.
   accessibility tree at a time since `display: none` removes the other, so this
   is not an a11y defect, but it is duplication worth collapsing if the two
   layouts ever converge.
-- **Nothing is wired to real routes.** All `href`s point at `/collections/*`,
-  `/products/*`, `/bag`, `/wishlist` etc., none of which exist yet. Every link
-  currently 404s. This also means the bottom nav's active state is untestable
-  beyond `/` — the `layoutId` slide between items has never actually run.
+- **Most routes now exist, but not all.** Measured: 15 of the 24 distinct
+  `href`s in the content resolve, up from 1. Still missing: `/bag` and
+  `/wishlist` (no cart yet), the footer's `/privacy`, `/returns`, `/shipping`
+  and `/terms`, and three nav links pointing at categories that do not exist —
+  `/collections/clothing`, `/collections/accessories`, `/collections/series-026`.
+  Those three are content, not code: either add the categories or repoint the
+  links in `/admin`.
 - **Search is decorative.** The navbar search button has no handler; it is an
   icon with an `aria-label` and nothing behind it.
-- **The homepage is the only route.** `app/page.tsx` is complete; there is no
-  PLP, PDP, cart, or wishlist.
+- **No cart or wishlist.** `/bag` and `/wishlist` do not exist, and "Add to
+  bag" on a product page is a link to `/bag` rather than a button that adds
+  anything — deliberately, so the page never claims to have done something it
+  has not.

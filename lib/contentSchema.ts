@@ -101,6 +101,7 @@ const brandStatement = z.object({
 const product = z.object({
   id: nonEmpty,
   name: nonEmpty,
+  categoryId: nonEmpty,
   price: z.number().int().nonnegative(),
   compareAtPrice: z.number().int().nonnegative().optional(),
   image: imageAsset,
@@ -176,6 +177,17 @@ return z
     // Cross-field rules are publish-time only: a draft mid-reorder can
     // legitimately reference a product that hasn't been added back yet.
     if (!strict) return;
+
+    const categoryIds = new Set(value.homepage.categories.items.map((c) => c.id));
+    value.products.forEach((p, i) => {
+      if (!categoryIds.has(p.categoryId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["products", i, "categoryId"],
+          message: `"${p.name}" is in category "${p.categoryId}", which doesn't exist.`,
+        });
+      }
+    });
 
     const ids = new Set(value.products.map((p) => p.id));
     value.homepage.productRail.productIds.forEach((id, i) => {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Product } from "@/data/types";
+import { useDraft } from "./AdminDraftProvider";
 import { BackdropPicker } from "./BackdropPicker";
 import { ImagePicker } from "./ImagePicker";
 import { Button, Field, Select, TextArea, TextInput, Toggle } from "./ui";
@@ -44,6 +45,10 @@ export function ProductDrawer({
   onDelete?: (id: string) => void;
   onClose: () => void;
 }) {
+  // The categories the editor can actually pick, straight from the draft — so
+  // renaming or adding one on the Categories page shows up here immediately.
+  const { content } = useDraft();
+  const categories = content.categories.items;
   const [draft, setDraft] = useState<Product>(product);
   const [badgeMode, setBadgeMode] = useState<string>(() => initialBadgeMode(product));
 
@@ -107,6 +112,31 @@ export function ProductDrawer({
                 );
               }}
             />
+          </Field>
+
+          {/* Required: a product with no category never appears on any
+              collection page, and publishing refuses one pointing at a
+              category that doesn't exist. The options are the real category
+              list, so an invalid value isn't expressible here. */}
+          <Field
+            label="Category"
+            htmlFor="p-category"
+            hint="Which collection page this product appears on."
+          >
+            <Select
+              id="p-category"
+              value={draft.categoryId}
+              onChange={(e) => patch({ categoryId: e.target.value })}
+            >
+              <option value="" disabled>
+                Choose a category…
+              </option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
           </Field>
 
           <Field
@@ -267,6 +297,9 @@ export function ProductDrawer({
 export const blankProduct = (): Product => ({
   id: "",
   name: "",
+  // Overwritten by the drawer's category field; a product with no category
+  // would simply never appear on a collection page.
+  categoryId: "",
   price: 0,
   image: {
     src: "/images/product-shell-jacket.webp",
