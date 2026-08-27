@@ -20,6 +20,16 @@ export const OverviewIcon = (p: IconProps) => (
   </svg>
 );
 
+/** Stacked sheets — the "Pages" group. */
+export const PagesIcon = (p: IconProps) => (
+  <svg {...base} {...p}>
+    <path d="M8 3.5h8.5L20 7v10.5a1.5 1.5 0 0 1-1.5 1.5H8a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 8 3.5Z" />
+    <path d="M16 3.5V7h3.5" />
+    <path d="M4 7v12.5A1.5 1.5 0 0 0 5.5 21H16" />
+  </svg>
+);
+
+/** Kept for the section-level rows inside a page. */
 export const SectionsIcon = (p: IconProps) => (
   <svg {...base} {...p}>
     <rect x="3.5" y="4" width="17" height="5" rx="1.5" />

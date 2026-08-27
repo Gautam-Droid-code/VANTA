@@ -163,7 +163,7 @@ export default function NavigationEditorPage() {
             <p className="mt-1 text-sm text-admin-muted">
               That link sits in the footer.{" "}
               <Link
-                href="/admin/sections/footer"
+                href="/admin/pages/homepage/footer"
                 className="font-medium text-admin-accent hover:underline"
               >
                 Edit it on the Footer page

@@ -81,98 +81,114 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
   );
 }
 
+/**
+ * One sidebar row, rendered at any depth.
+ *
+ * Recursive because the tree now nests three deep — Pages → Homepage →
+ * sections — and will nest further as more pages become editable. Depth is
+ * expressed by indentation and type size rather than by separate components
+ * per level, so adding a level needs no new code here.
+ */
 function NavRow({
   item,
   pathname,
   onNavigate,
+  depth = 0,
 }: {
   item: AdminNavItem;
   pathname: string;
   onNavigate: () => void;
+  depth?: number;
 }) {
   const hasChildren = Boolean(item.children?.length);
-  const sectionActive = hasChildren && pathname.startsWith(item.href);
-  const [expanded, setExpanded] = useState(sectionActive);
+  /**
+   * A branch counts as active when the current route is inside it, so opening
+   * a section editor directly by URL leaves the whole path to it expanded
+   * rather than collapsed around the page you are on.
+   */
+  const withinBranch = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const [expanded, setExpanded] = useState(withinBranch);
   const Icon = item.icon;
   const active = pathname === item.href;
 
-  const rowClass =
-    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-150";
+  const rowClass = cn(
+    "flex w-full items-center gap-3 rounded-lg transition-colors duration-150",
+    depth === 0 ? "px-3 py-2.5 text-sm" : "px-3 py-2 text-[13px]",
+  );
 
-  if (hasChildren) {
+  if (!item.ready && !hasChildren) {
     return (
       <li>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          className={cn(
-            rowClass,
-            sectionActive ? "text-bone" : "text-bone/65 hover:bg-bone/5 hover:text-bone",
-          )}
-        >
-          <Icon className="h-[18px] w-[18px] shrink-0" />
-          <span className="flex-1 text-left">{item.label}</span>
-          <ChevronIcon
-            className={cn(
-              "h-4 w-4 shrink-0 transition-transform duration-200",
-              expanded && "rotate-90",
-            )}
-          />
-        </button>
-
-        {expanded && (
-          <ul className="mb-1 ml-[26px] mt-0.5 space-y-0.5 border-l border-bone/10 pl-3">
-            {item.children!.map((child) => {
-              const childActive = pathname === child.href;
-              if (!child.ready) {
-                return (
-                  <li key={child.href}>
-                    <span
-                      title="Coming soon"
-                      className="flex cursor-not-allowed items-center justify-between rounded-md px-3 py-2 text-[13px] text-bone/25"
-                    >
-                      {child.label}
-                      <span className="text-[9px] uppercase tracking-wider">Soon</span>
-                    </span>
-                  </li>
-                );
-              }
-              return (
-                <li key={child.href}>
-                  <Link
-                    href={child.href}
-                    onClick={onNavigate}
-                    aria-current={childActive ? "page" : undefined}
-                    className={cn(
-                      "block rounded-md px-3 py-2 text-[13px] transition-colors duration-150",
-                      childActive
-                        ? "bg-admin-accent/15 font-medium text-admin-accent"
-                        : "text-bone/60 hover:bg-bone/5 hover:text-bone",
-                    )}
-                  >
-                    {child.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <span title="Coming soon" className={cn(rowClass, "cursor-not-allowed text-bone/25")}>
+          {Icon && <Icon className="h-[18px] w-[18px] shrink-0" />}
+          <span className="flex-1">{item.label}</span>
+          <span className="text-[9px] uppercase tracking-wider">Soon</span>
+        </span>
       </li>
     );
   }
 
-  if (!item.ready) {
+  if (hasChildren) {
     return (
       <li>
-        <span
-          title="Coming soon"
-          className={cn(rowClass, "cursor-not-allowed text-bone/25")}
-        >
-          <Icon className="h-[18px] w-[18px] shrink-0" />
-          <span className="flex-1">{item.label}</span>
-          <span className="text-[9px] uppercase tracking-wider">Soon</span>
-        </span>
+        <div className="flex items-stretch">
+          {/*
+            The label navigates and the chevron expands, as two controls.
+            Making the whole row do both means you cannot open a group's own
+            page without also collapsing it, and cannot collapse it without
+            navigating away.
+          */}
+          <Link
+            href={item.href}
+            onClick={onNavigate}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              rowClass,
+              "flex-1",
+              active
+                ? "bg-admin-accent/15 font-medium text-admin-accent"
+                : withinBranch
+                  ? "text-bone"
+                  : "text-bone/65 hover:bg-bone/5 hover:text-bone",
+            )}
+          >
+            {Icon && <Icon className="h-[18px] w-[18px] shrink-0" />}
+            <span className="flex-1 text-left">{item.label}</span>
+          </Link>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${item.label}`}
+            className="rounded-lg px-2 text-bone/50 transition-colors hover:bg-bone/5 hover:text-bone"
+          >
+            <ChevronIcon
+              className={cn(
+                "h-4 w-4 shrink-0 transition-transform duration-200",
+                expanded && "rotate-90",
+              )}
+            />
+          </button>
+        </div>
+
+        {expanded && (
+          <ul
+            className={cn(
+              "mb-1 mt-0.5 space-y-0.5 border-l border-bone/10 pl-3",
+              depth === 0 ? "ml-[26px]" : "ml-3",
+            )}
+          >
+            {item.children!.map((child) => (
+              <NavRow
+                key={child.href}
+                item={child}
+                pathname={pathname}
+                onNavigate={onNavigate}
+                depth={depth + 1}
+              />
+            ))}
+          </ul>
+        )}
       </li>
     );
   }
@@ -186,11 +202,13 @@ function NavRow({
         className={cn(
           rowClass,
           active
-            ? "bg-admin-accent font-medium text-white"
+            ? depth === 0
+              ? "bg-admin-accent font-medium text-white"
+              : "bg-admin-accent/15 font-medium text-admin-accent"
             : "text-bone/65 hover:bg-bone/5 hover:text-bone",
         )}
       >
-        <Icon className="h-[18px] w-[18px] shrink-0" />
+        {Icon && <Icon className="h-[18px] w-[18px] shrink-0" />}
         <span className="flex-1">{item.label}</span>
       </Link>
     </li>

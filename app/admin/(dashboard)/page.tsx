@@ -22,7 +22,7 @@ export default function AdminOverviewPage() {
     {
       label: "Homepage sections",
       value: 7,
-      href: "/admin/sections/hero",
+      href: "/admin/pages/homepage/hero",
       ready: true,
     },
   ];
@@ -71,7 +71,7 @@ export default function AdminOverviewPage() {
                 No pending edits. Pick a section below to make a change.
               </p>
             </div>
-            <Link href="/admin/sections/hero">
+            <Link href="/admin/pages/homepage/hero">
               <Button variant="primary">Edit hero</Button>
             </Link>
           </div>
@@ -170,7 +170,7 @@ export default function AdminOverviewPage() {
             </div>
 
             <div className="mt-4 flex items-center gap-2">
-              <Link href="/admin/sections/hero" className="flex-1">
+              <Link href="/admin/pages/homepage/hero" className="flex-1">
                 <Button className="w-full">Edit hero</Button>
               </Link>
               <Link href="/" target="_blank" rel="noopener noreferrer">
