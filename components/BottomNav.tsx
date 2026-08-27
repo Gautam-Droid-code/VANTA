@@ -21,7 +21,9 @@ const MotionLink = motion.create(Link);
  */
 export function BottomNav({ items }: BottomNavProps) {
   const pathname = usePathname();
-  const { count } = useBag();
+  const { count, hydrated } = useBag();
+  // See the note in Navbar: the bag is client-only, so the badge waits.
+  const badgeCount = hydrated ? count : 0;
 
   return (
     <nav
@@ -58,12 +60,12 @@ export function BottomNav({ items }: BottomNavProps) {
 
                 <span className="relative">
                   <Icon className="h-5 w-5" />
-                  {item.icon === "bag" && count > 0 && (
+                  {item.icon === "bag" && badgeCount > 0 && (
                     <span
                       aria-hidden
                       className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-flare-red px-1 text-[10px] font-bold leading-none text-bone"
                     >
-                      {count > 9 ? "9+" : count}
+                      {badgeCount > 9 ? "9+" : badgeCount}
                     </span>
                   )}
                 </span>
@@ -76,9 +78,9 @@ export function BottomNav({ items }: BottomNavProps) {
                       computation drops the whitespace between sibling text
                       nodes ("2ITEMS"). `normal-case` stops the parent's
                       uppercase leaking into the announced name. */}
-                  {item.icon === "bag" && count > 0 && (
+                  {item.icon === "bag" && badgeCount > 0 && (
                     <span className="sr-only normal-case">
-                      {`, ${count} ${count === 1 ? "item" : "items"}`}
+                      {`, ${badgeCount} ${badgeCount === 1 ? "item" : "items"}`}
                     </span>
                   )}
                 </span>

@@ -10,7 +10,7 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { ProductCard } from "@/components/ProductCard";
-import { PillButton } from "@/components/ui/PillButton";
+import { AddToBagButton } from "@/components/AddToBagButton";
 import { trustIcons } from "@/components/ui/Icons";
 
 export async function generateStaticParams() {
@@ -110,14 +110,7 @@ export default async function ProductPage({
             </p>
 
             <div className="mt-8">
-              {/*
-                Adds nothing yet — there is no cart behind it. It links to the
-                bag rather than pretending to be a button that works, so the
-                page never claims to have done something it has not.
-              */}
-              <PillButton href="/bag" block>
-                Add to bag
-              </PillButton>
+              <AddToBagButton productId={product.id} />
             </div>
 
             {/* The buying facts, in the same spec-sheet register as the rest

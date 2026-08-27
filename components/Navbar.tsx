@@ -21,7 +21,7 @@ export function Navbar({ nav }: NavbarProps) {
   const progress = useScrollProgress();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  const { count } = useBag();
+  const { count, hydrated } = useBag();
 
   /**
    * A link is current if the path matches it, or sits beneath it — so
@@ -125,7 +125,11 @@ export function Navbar({ nav }: NavbarProps) {
               aria-label={`Bag, ${count} ${count === 1 ? "item" : "items"}`}
             >
               <BagIcon className="h-5 w-5" />
-              {count > 0 && (
+              {/* `hydrated` gates the badge: the bag lives in localStorage,
+                  which the server cannot see, so rendering a count before it
+                  is read would either mismatch the server markup or flash a
+                  wrong number. */}
+              {hydrated && count > 0 && (
                 <span
                   key={count}
                   aria-hidden
