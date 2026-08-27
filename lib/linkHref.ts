@@ -3,7 +3,7 @@
  *
  * The failure this exists to stop is real and was live on the site: the "Link"
  * box is pre-filled with "/", someone pastes an address after it, and it saves
- * as "/https:cleanindiajournal.com". That is a perfectly valid internal path,
+ * as "/https:example.com". That is a perfectly valid internal path,
  * so nothing rejected it — it simply pointed at a page on our own site that
  * does not exist, and only ever announced itself as a 404 to visitors.
  *
