@@ -63,12 +63,12 @@ export const adminNav: AdminNavItem[] = [
           { label: "Footer", href: "/admin/pages/homepage/footer", ready: true },
         ],
       },
+      { label: "Collection pages", href: "/admin/pages/collections", ready: true },
       /**
-       * Real storefront routes that have no editable content yet. They are
-       * listed rather than hidden so the shape of the work stays visible —
-       * these pages render from the product and category data today.
+       * Listed rather than hidden so the shape of the work stays visible.
+       * Product pages render from product data today and have no page-level
+       * content of their own yet.
        */
-      { label: "Collection pages", href: "/admin/pages/collections" },
       { label: "Product pages", href: "/admin/pages/products" },
     ],
   },

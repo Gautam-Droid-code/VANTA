@@ -5,10 +5,10 @@ import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { CategoryList } from "@/components/CategoryList";
 
-export const metadata: Metadata = {
-  title: "Collections — VANTA",
-  description: "Every VANTA collection.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { collectionPage } = await contentStore.read();
+  return { title: `${collectionPage.indexHeading} — VANTA`, description: collectionPage.indexIntro };
+}
 
 /**
  * The index the nav's "All categories" and "Collections" both point at.
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
  * shape are already right.
  */
 export default async function CollectionsPage() {
-  const { homepage } = await contentStore.read();
+  const { homepage, collectionPage } = await contentStore.read();
 
   return (
     <div className="storefront-shell">
@@ -26,10 +26,14 @@ export default async function CollectionsPage() {
 
       <main id="main" className="pt-[calc(var(--header-h)+2rem)]">
         <header className="px-gutter lg:px-gutter-lg">
-          <h1 className="headline text-display-sm lg:text-display-md">Collections</h1>
-          <p className="mt-3 max-w-prose text-base text-bone/60">
-            Every range, built for the same conditions.
-          </p>
+          <h1 className="headline text-display-sm lg:text-display-md">
+            {collectionPage.indexHeading}
+          </h1>
+          {collectionPage.indexIntro ? (
+            <p className="mt-3 max-w-prose whitespace-pre-line text-base text-bone/60">
+              {collectionPage.indexIntro}
+            </p>
+          ) : null}
         </header>
 
         <CategoryList heading="" items={homepage.categories.items} />

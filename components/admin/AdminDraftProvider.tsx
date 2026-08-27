@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { discardDraft, publishContent, saveDraft } from "@/app/admin/actions";
 import type { DraftRecord, SiteContent } from "@/lib/contentStore";
 import type { MediaItem } from "@/lib/mediaStore";
-import type { HomepageContent, Product } from "@/data/types";
+import type { CollectionPageContent, HomepageContent, Product } from "@/data/types";
 
 /**
  * ADMIN DATA LAYER.
@@ -29,7 +29,8 @@ import type { HomepageContent, Product } from "@/data/types";
  */
 
 /** Human labels for the dirty-state banner, keyed by section. */
-const SECTION_LABELS: Record<keyof HomepageContent | "products", string> = {
+const SECTION_LABELS: Record<keyof HomepageContent | "products" | "collectionPage", string> = {
+  collectionPage: "Collection Pages",
   nav: "Navigation",
   hero: "Hero",
   lookbook: "Lookbook",
@@ -43,6 +44,9 @@ const SECTION_LABELS: Record<keyof HomepageContent | "products", string> = {
 
 interface DraftState {
   content: HomepageContent;
+  /** Shared settings for the collection pages. */
+  collectionPage: CollectionPageContent;
+  updateCollectionPage: (value: CollectionPageContent) => void;
   products: Product[];
 
   /** Updates one top-level section of the homepage content. */
@@ -118,6 +122,9 @@ export function AdminDraftProvider({
   const [products, setProducts] = useState<Product[]>(() =>
     clone(initialDraft ? initialDraft.content.products : initial.products),
   );
+  const [collectionPage, setCollectionPage] = useState<CollectionPageContent>(() =>
+    clone(initialDraft ? initialDraft.content.collectionPage : initial.collectionPage),
+  );
 
   /**
    * The last successfully published state, which is what "Discard" returns to.
@@ -151,11 +158,22 @@ export function AdminDraftProvider({
   const [dirty, setDirty] = useState<Record<string, boolean>>(() => {
     if (!initialDraft) return {};
     const marked: Record<string, boolean> = {};
+    /**
+     * Three places a section can live: the products array, the shared
+     * collection-page settings, or a key of the homepage. Resolved here rather
+     * than indexed blindly, so adding another top-level section is a compile
+     * error until it is handled instead of a silently missing dirty flag.
+     */
+    const pick = (c: SiteContent, key: keyof typeof SECTION_LABELS): unknown => {
+      if (key === "products") return c.products;
+      if (key === "collectionPage") return c.collectionPage;
+      return c.homepage[key];
+    };
+
     (Object.keys(SECTION_LABELS) as Array<keyof typeof SECTION_LABELS>).forEach((key) => {
-      const before = key === "products" ? initial.products : initial.homepage[key];
-      const after =
-        key === "products" ? initialDraft.content.products : initialDraft.content.homepage[key];
-      if (JSON.stringify(before) !== JSON.stringify(after)) marked[key] = true;
+      if (JSON.stringify(pick(initial, key)) !== JSON.stringify(pick(initialDraft.content, key))) {
+        marked[key] = true;
+      }
     });
     return marked;
   });
@@ -171,6 +189,14 @@ export function AdminDraftProvider({
     <K extends keyof HomepageContent>(key: K, value: HomepageContent[K]) => {
       setContent((c) => ({ ...c, [key]: value }));
       touch(key);
+    },
+    [touch],
+  );
+
+  const updateCollectionPage = useCallback(
+    (value: CollectionPageContent) => {
+      setCollectionPage(value);
+      touch("collectionPage");
     },
     [touch],
   );
@@ -234,15 +260,15 @@ export function AdminDraftProvider({
   useEffect(() => {
     if (!hasChanges) return;
     const timer = setTimeout(() => {
-      void writeDraft({ homepage: content, products });
+      void writeDraft({ homepage: content, collectionPage, products });
     }, 1000);
     return () => clearTimeout(timer);
     // `content`/`products` are the trigger: any edit restarts the timer.
-  }, [content, products, hasChanges, writeDraft]);
+  }, [content, collectionPage, products, hasChanges, writeDraft]);
 
   const saveDraftNow = useCallback(() => {
-    void writeDraft({ homepage: content, products });
-  }, [content, products, writeDraft]);
+    void writeDraft({ homepage: content, collectionPage, products });
+  }, [content, collectionPage, products, writeDraft]);
 
   /**
    * Last line of defence. Autosave covers everything except the second between
@@ -261,7 +287,7 @@ export function AdminDraftProvider({
   const publish = useCallback(() => {
     setPublishError(null);
     startPublishing(async () => {
-      const next: SiteContent = { homepage: content, products };
+      const next: SiteContent = { homepage: content, collectionPage, products };
       const result = await publishContent(next);
 
       if (!result.ok) {
@@ -280,7 +306,7 @@ export function AdminDraftProvider({
       // Pull the server components back down so previews reflect what is live.
       router.refresh();
     });
-  }, [content, products, router]);
+  }, [content, collectionPage, products, router]);
 
   const discard = useCallback(() => {
     // Back to the last published state, not to `/data` — after a publish those
@@ -288,6 +314,7 @@ export function AdminDraftProvider({
     // work that is already live.
     setContent(clone(baseline.current.homepage));
     setProducts(clone(baseline.current.products));
+    setCollectionPage(clone(baseline.current.collectionPage));
     setDirty({});
     setLastEditedAt(null);
     setPublishError(null);
@@ -311,6 +338,8 @@ export function AdminDraftProvider({
   const value = useMemo<DraftState>(
     () => ({
       content,
+      collectionPage,
+      updateCollectionPage,
       products,
       updateSection,
       upsertProduct,
@@ -333,6 +362,8 @@ export function AdminDraftProvider({
     }),
     [
       content,
+      collectionPage,
+      updateCollectionPage,
       products,
       updateSection,
       upsertProduct,

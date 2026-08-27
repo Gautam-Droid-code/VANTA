@@ -769,6 +769,56 @@ It stays stored because the homepage rows render without loading the catalogue
 — but it has to be updated when products are added, and nothing enforces that
 yet.
 
+## 20. Collection pages are editable
+
+Split in two, because "the collection page" is two different things.
+
+**Per-collection** content lives on `Category`, as optional `description` and
+`banner`. A collection page *is* a category — it already owns the name, href
+and thumbnail — so editing happens where someone would look for it, on the
+Categories page. Both optional: a collection page is complete without them and
+falls back to its plain heading, so no copy has to be invented for eight
+categories before any of them can be published.
+
+**Template-level** content is a new `CollectionPageContent` on `SiteContent`,
+edited at Pages → Collection pages: the index heading and intro, the
+empty-state message and its link label, whether the piece count shows, and the
+names of the three computed views. Keeping these on `Category` would mean
+storing the same empty-state message once per category and keeping eight
+copies in sync by hand.
+
+The view names matter most: `/collections/new`, `/sale` and `/all` have no
+`Category` behind them, so their titles were hardcoded in `lib/catalogue.ts`
+with no way to change them. The admin explains what each one collects rather
+than naming the mechanism — "Products marked NEW", not "badge === NEW".
+
+### The store now fills in missing sections
+
+`contentStore.read()` merges the seed for any absent top-level key. The stored
+document is written by an earlier version of this code and can predate a
+section the schema has since grown, exactly as it did here. Merging means the
+schema can gain a section without a hand-run migration and without the admin
+refusing to load until someone performs one. Only whole missing keys are
+filled — anything present is left exactly as stored, so it can never quietly
+overwrite published content.
+
+### `read()` retries once on a parse failure
+
+A read landing mid-write returns a truncated document, and one bad read would
+500 every storefront page at once. Writes are temp-file-then-rename precisely
+so that cannot happen, but it was observed twice under concurrent
+first-requests in dev. One retry, not a loop: a genuinely corrupt file must
+still surface. It does not fall back to the seed — that would serve the
+original copy and prices as though nothing had ever been published.
+
+### Debt: categories still live under `homepage`
+
+`homepage.categories` is what the collection pages read, which is now plainly
+the wrong home for it — it is site-wide data filed under one page. Moving it
+touches the schema, the store, the homepage editor and validation, so it was
+left alone rather than folded into an unrelated change. It gets harder the
+longer it waits.
+
 ## Known issues / follow-ups
 
 - **Product imagery is doubled up.** There are only 5 photos in the Stitch

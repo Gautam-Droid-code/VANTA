@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import type { Category } from "@/data/types";
 import { ImagePicker } from "./ImagePicker";
-import { Button, Field, TextInput } from "./ui";
+import { Button, Field, TextArea, TextInput, Toggle } from "./ui";
 import { CloseIcon } from "./AdminIcons";
 import { slugify } from "./ProductDrawer";
 
 /**
- * `Category` is `{ id, name, href, image, itemCount }`. The brief listed name,
- * item count and thumbnail — `id` (auto) and `href` are included as well.
+ * `Category` is `{ id, name, href, image, itemCount }` plus the optional
+ * page-level fields its own collection page renders — `description` and
+ * `banner`. Those live here rather than on the Collection pages editor because
+ * they differ per collection; that editor holds only what all of them share.
  *
  * Mounted with a `key` per category so opening a different row remounts it.
  */
@@ -92,7 +94,7 @@ export function CategoryDrawer({
           <Field
             label="Number of items"
             htmlFor="c-count"
-            hint="Shown next to the category name on the homepage."
+            hint="Shown next to the category name on the homepage. Typed in by hand — the collection page counts products itself."
           >
             <TextInput
               id="c-count"
@@ -102,6 +104,46 @@ export function CategoryDrawer({
               onChange={(e) => patch({ itemCount: Number(e.target.value) })}
             />
           </Field>
+
+          {/* Everything below appears on this category's own collection page. */}
+          <Field
+            label="Collection page intro"
+            htmlFor="c-description"
+            hint={`${(draft.description ?? "").length} characters · optional, shown under the heading. Press Enter to start a new line.`}
+          >
+            <TextArea
+              id="c-description"
+              rows={4}
+              value={draft.description ?? ""}
+              /* Stored as undefined rather than "" when cleared, matching the
+                 field's optionality — the same rule the external link toggle
+                 follows. */
+              onChange={(e) => patch({ description: e.target.value || undefined })}
+            />
+          </Field>
+
+          <Toggle
+            checked={Boolean(draft.banner)}
+            onChange={(on) =>
+              patch({
+                banner: on
+                  ? (draft.banner ?? { ...draft.image, alt: "" })
+                  : undefined,
+              })
+            }
+            label="Show a wide image above the products"
+            hint="Off by default. The plain heading is the finished design without it."
+          />
+
+          {draft.banner ? (
+            <Field label="Banner image" htmlFor="c-banner">
+              <ImagePicker
+                idPrefix="c-banner"
+                value={draft.banner}
+                onChange={(banner) => patch({ banner })}
+              />
+            </Field>
+          ) : null}
 
           <Field label="Background photo" hint="Revealed behind the row when someone hovers or taps it.">
             <ImagePicker

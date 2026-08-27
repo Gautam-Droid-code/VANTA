@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { contentStore } from "@/lib/contentStore";
@@ -31,7 +32,10 @@ export async function generateMetadata({
   if (!collection) return { title: "Not found" };
   return {
     title: `${collection.category.name} — VANTA`,
-    description: `${collection.products.length} pieces in ${collection.category.name}.`,
+    // The editor's own words when there are any, rather than a generated count.
+    description:
+      collection.category.description ||
+      `${collection.products.length} pieces in ${collection.category.name}.`,
   };
 }
 
@@ -41,7 +45,7 @@ export default async function CollectionPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [collection, { homepage }, links] = await Promise.all([
+  const [collection, { homepage, collectionPage }, links] = await Promise.all([
     getCollection(slug),
     contentStore.read(),
     getCollectionLinks(),
@@ -68,12 +72,35 @@ export default async function CollectionPage({
             <span className="text-bone/80">{category.name}</span>
           </nav>
 
+          {/* Optional wide image. Absent for most collections, and the plain
+              heading below is the complete design when it is. */}
+          {category.banner ? (
+            <div className="relative mt-4 aspect-[21/9] w-full overflow-hidden lg:aspect-[3/1]">
+              <Image
+                src={category.banner.src}
+                alt={category.banner.alt}
+                fill
+                priority
+                sizes="100vw"
+                className="object-cover object-center"
+              />
+            </div>
+          ) : null}
+
           <div className="mt-4 flex flex-wrap items-end justify-between gap-4 border-b border-ink-line pb-6">
             <h1 className="headline text-display-sm lg:text-display-md">{category.name}</h1>
-            <p className="text-sm text-bone/50">
-              {products.length} {products.length === 1 ? "piece" : "pieces"}
-            </p>
+            {collectionPage.showCount ? (
+              <p className="text-sm text-bone/50">
+                {products.length} {products.length === 1 ? "piece" : "pieces"}
+              </p>
+            ) : null}
           </div>
+
+          {category.description ? (
+            <p className="mt-6 max-w-prose whitespace-pre-line text-base leading-relaxed text-bone/60">
+              {category.description}
+            </p>
+          ) : null}
         </header>
 
         {/*
@@ -88,12 +115,12 @@ export default async function CollectionPage({
             {products.length === 0 ? (
               /* An empty collection is a dead end, so it points somewhere. */
               <div className="py-20 text-center">
-                <p className="text-base text-bone/60">Nothing in this collection yet.</p>
+                <p className="text-base text-bone/60">{collectionPage.emptyMessage}</p>
                 <Link
                   href="/collections/all"
                   className="mt-4 inline-block text-label font-bold uppercase text-bone underline underline-offset-4 transition-opacity hover:opacity-70"
                 >
-                  Browse everything
+                  {collectionPage.emptyCtaLabel}
                 </Link>
               </div>
             ) : (

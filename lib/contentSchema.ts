@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { BrandStatementContent, HeroContent, HomepageContent, Product } from "@/data/types";
+import type {
+  BrandStatementContent,
+  CollectionPageContent,
+  HeroContent,
+  HomepageContent,
+  Product,
+} from "@/data/types";
 import type { SiteContent } from "./contentStore";
 import { isBrokenHref } from "./linkHref";
 
@@ -130,6 +136,10 @@ const category = z.object({
   href: nonEmpty,
   image: imageAsset,
   itemCount: z.number().int().nonnegative(),
+  // Page-level extras. Optional, and an empty description is meaningful —
+  // it means "no intro on this collection page", not an unfinished field.
+  description: z.string().optional(),
+  banner: imageAsset.optional(),
 });
 
 const navContent = z.object({
@@ -152,6 +162,15 @@ const footerContent = z.object({
   copyright: z.string(),
 });
 
+const collectionPageContent = z.object({
+  indexHeading: nonEmpty,
+  indexIntro: z.string(),
+  emptyMessage: nonEmpty,
+  emptyCtaLabel: nonEmpty,
+  showCount: z.boolean(),
+  viewNames: z.object({ all: nonEmpty, new: nonEmpty, sale: nonEmpty }),
+}) satisfies z.ZodType<CollectionPageContent>;
+
 const homepageContent = z.object({
   nav: navContent,
   hero: heroContent,
@@ -166,6 +185,7 @@ const homepageContent = z.object({
 return z
   .object({
     homepage: homepageContent,
+    collectionPage: collectionPageContent,
     products: z.array(product),
   })
   /**

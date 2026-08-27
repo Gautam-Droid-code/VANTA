@@ -122,6 +122,16 @@ export interface Category {
   /** Revealed behind the row on hover (desktop) / tap (mobile). */
   image: ImageAsset;
   itemCount: number;
+  /**
+   * Page-level content for this category's own collection page.
+   *
+   * Both optional: a collection page is complete without them, and the page
+   * falls back to its plain heading. Making them required would force copy to
+   * be invented for every category before any of them could be published.
+   */
+  description?: string;
+  /** Wide image above the product grid. Omit for the plain heading. */
+  banner?: ImageAsset;
 }
 
 export type BottomNavIcon = "home" | "shop" | "wishlist" | "bag";
@@ -144,6 +154,34 @@ export interface FooterContent {
   tagline: string;
   links: Link[];
   copyright: string;
+}
+
+/**
+ * Content shared by every collection page, and by the collections index.
+ *
+ * Separate from `Category` because it is a different kind of thing: a category
+ * describes one collection, this describes the template all of them render in.
+ * Folding it into `Category` would mean storing the same empty-state message
+ * once per category and keeping them in sync by hand.
+ */
+export interface CollectionPageContent {
+  /** The `/collections` index. */
+  indexHeading: string;
+  indexIntro: string;
+  /** Shown when a collection has no products in it. */
+  emptyMessage: string;
+  emptyCtaLabel: string;
+  /** Whether "12 pieces" appears next to the heading. */
+  showCount: boolean;
+  /**
+   * Titles for the three computed views. They are not categories, so they have
+   * no `Category` to carry a name — before this they were hardcoded.
+   */
+  viewNames: {
+    all: string;
+    new: string;
+    sale: string;
+  };
 }
 
 export interface HomepageContent {

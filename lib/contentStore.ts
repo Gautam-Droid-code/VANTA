@@ -10,8 +10,9 @@ import "server-only";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { homepage as seedHomepage } from "@/data/homepage";
+import { collectionPage as seedCollectionPage } from "@/data/collectionPage";
 import { products as seedProducts } from "@/data/products";
-import type { HomepageContent, Product } from "@/data/types";
+import type { CollectionPageContent, HomepageContent, Product } from "@/data/types";
 
 /**
  * The published site content, and the only thing either surface reads.
@@ -21,6 +22,8 @@ import type { HomepageContent, Product } from "@/data/types";
  */
 export interface SiteContent {
   homepage: HomepageContent;
+  /** Shared by every collection page and the collections index. */
+  collectionPage: CollectionPageContent;
   products: Product[];
 }
 
@@ -54,7 +57,32 @@ export interface ContentStore {
 
 /** The starting state: whatever `/data` currently holds. */
 export function seedContent(): SiteContent {
-  return structuredClone({ homepage: seedHomepage, products: seedProducts });
+  return structuredClone({
+    homepage: seedHomepage,
+    collectionPage: seedCollectionPage,
+    products: seedProducts,
+  });
+}
+
+/**
+ * Fills in top-level keys a stored document predates.
+ *
+ * The store is a document written by an earlier version of this code, so it
+ * can be missing a section the schema has since grown — as it was when
+ * `collectionPage` was added. Merging the seed for what is absent means the
+ * schema can gain a section without a hand-run migration, and without the
+ * admin refusing to load until someone performs one.
+ *
+ * Only whole missing keys are filled. Anything present is left exactly as
+ * stored, so this can never quietly overwrite published content.
+ */
+function withDefaults(stored: Partial<SiteContent>): SiteContent {
+  const seed = seedContent();
+  return {
+    homepage: stored.homepage ?? seed.homepage,
+    collectionPage: stored.collectionPage ?? seed.collectionPage,
+    products: stored.products ?? seed.products,
+  };
 }
 
 /**
@@ -84,13 +112,30 @@ class FileContentStore implements ContentStore {
   }
 
   async read(): Promise<SiteContent> {
-    try {
-      const raw = await readFile(this.file, "utf8");
-      return JSON.parse(raw) as SiteContent;
-    } catch (error) {
-      // First run: nothing written yet, so `/data` is the published state.
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return seedContent();
-      throw error;
+    /**
+     * Retried once on a parse failure.
+     *
+     * A read that lands mid-write returns a truncated document, and a single
+     * bad read would otherwise 500 every storefront page at once. Writes go
+     * temp-file-then-rename precisely so this cannot happen, but it has been
+     * observed under concurrent first-requests in dev, and the cost of being
+     * wrong is the whole site.
+     *
+     * One retry, not a loop: a genuinely corrupt file must still surface
+     * rather than be masked by retrying forever. Falling back to the seed
+     * would be worse than failing — it would serve the original copy and
+     * prices as though nothing had ever been published.
+     */
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const raw = await readFile(this.file, "utf8");
+        return withDefaults(JSON.parse(raw) as Partial<SiteContent>);
+      } catch (error) {
+        // First run: nothing written yet, so `/data` is the published state.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return seedContent();
+        if (attempt === 0 && error instanceof SyntaxError) continue;
+        throw error;
+      }
     }
   }
 
@@ -100,7 +145,8 @@ class FileContentStore implements ContentStore {
 
   async readDraft(): Promise<DraftRecord | null> {
     try {
-      return JSON.parse(await readFile(this.draftFile, "utf8")) as DraftRecord;
+      const record = JSON.parse(await readFile(this.draftFile, "utf8")) as DraftRecord;
+      return { ...record, content: withDefaults(record.content) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       // A corrupt draft must not lock the admin out. Published content is

@@ -22,29 +22,34 @@ export interface Collection {
  * groups a product belongs to — "on sale" is a fact about a price, and asking
  * an editor to tag it as well would be asking them to keep two things in sync.
  */
-const VIEWS: Record<string, { name: string; select: (all: Product[]) => Product[] }> = {
-  all: { name: "Everything", select: (all) => all },
-  new: { name: "New Drops", select: (all) => all.filter((p) => p.badge === "NEW") },
+const VIEWS = {
+  all: { select: (all: Product[]) => all },
+  new: { select: (all: Product[]) => all.filter((p) => p.badge === "NEW") },
   sale: {
-    name: "Sale",
-    select: (all) => all.filter((p) => p.compareAtPrice !== undefined && p.compareAtPrice > p.price),
+    select: (all: Product[]) =>
+      all.filter((p) => p.compareAtPrice !== undefined && p.compareAtPrice > p.price),
   },
-};
+} as const;
+
+type ViewSlug = keyof typeof VIEWS;
+
+const isView = (slug: string): slug is ViewSlug => slug in VIEWS;
 
 export async function getCollection(slug: string): Promise<Collection | null> {
-  const { homepage, products } = await contentStore.read();
+  const { homepage, collectionPage, products } = await contentStore.read();
 
-  const view = VIEWS[slug];
-  if (view) {
+  if (isView(slug)) {
     return {
+      // A view has no `Category` behind it, so one is synthesised. Its name
+      // is editable content now rather than a string in this file.
       category: {
         id: slug,
-        name: view.name,
+        name: collectionPage.viewNames[slug],
         href: `/collections/${slug}`,
         itemCount: 0,
         image: { src: "", alt: "", width: 0, height: 0 },
       },
-      products: view.select(products),
+      products: VIEWS[slug].select(products),
     };
   }
 
@@ -79,11 +84,11 @@ export interface CollectionLink {
  * visitor can count themselves has to be right.
  */
 export async function getCollectionLinks(): Promise<CollectionLink[]> {
-  const { homepage, products } = await contentStore.read();
+  const { homepage, collectionPage, products } = await contentStore.read();
 
-  const view = (slug: keyof typeof VIEWS): CollectionLink => ({
+  const view = (slug: ViewSlug): CollectionLink => ({
     slug,
-    name: VIEWS[slug].name,
+    name: collectionPage.viewNames[slug],
     href: `/collections/${slug}`,
     count: VIEWS[slug].select(products).length,
   });
