@@ -191,6 +191,7 @@ export function ProductDrawer({
               value={draft.image}
               onChange={(image) => patch({ image })}
               idPrefix="p-image"
+              slot="product"
             />
           </Field>
 

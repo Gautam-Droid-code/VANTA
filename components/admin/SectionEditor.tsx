@@ -137,6 +137,7 @@ export function SectionEditor({
               <ImagePicker
                 value={value.image}
                 onChange={(image) => patch({ image })}
+                slot={hasEyebrow(value) ? "brandStatement" : "hero"}
               />
             </div>
           </Card>

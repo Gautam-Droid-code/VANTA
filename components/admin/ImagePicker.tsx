@@ -1,10 +1,12 @@
 "use client";
 
 import { useId, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import type { ImageAsset } from "@/data/types";
 import { uploadMedia, deleteMedia } from "@/app/admin/actions";
 import { ACCEPTED_MIME, MAX_UPLOAD_MB } from "@/lib/mediaLimits";
+import { imageGuidance, type ImageSlot } from "@/lib/imageGuidance";
 import { useDraft } from "./AdminDraftProvider";
 import { mediaLibrary } from "./mediaLibrary";
 import { Field, TextInput } from "./ui";
@@ -37,12 +39,17 @@ export function ImagePicker({
   value,
   onChange,
   idPrefix = "image",
+  slot,
 }: {
   value: ImageAsset;
   onChange: (next: ImageAsset) => void;
   idPrefix?: string;
+  /** Which slot this fills, so the picker can state the shape it crops to. */
+  slot?: ImageSlot;
 }) {
   const { media, addMedia, dropMedia } = useDraft();
+  const router = useRouter();
+  const guidance = slot ? imageGuidance[slot] : null;
   const inputId = useId();
 
   const [isUploading, startUpload] = useTransition();
@@ -81,6 +88,13 @@ export function ImagePicker({
         return;
       }
       addMedia(result.item);
+      /**
+       * The library is also read on the server, in the dashboard layout.
+       * Without this the client keeps the new photo in memory but the cached
+       * server payload does not have it — so it is there now and gone after a
+       * reload, which is exactly how an upload appears to vanish.
+       */
+      router.refresh();
       // Select it straight away — uploading a photo here always means wanting
       // to use it, and making the editor hunt for it in the grid is busywork.
       onChange({
@@ -112,6 +126,7 @@ export function ImagePicker({
         return;
       }
       dropMedia(id);
+      router.refresh();
     });
   };
 
@@ -154,6 +169,15 @@ export function ImagePicker({
           );
         })}
       </div>
+
+      {guidance ? (
+        <p className="rounded-lg border border-admin-border bg-admin-surface-alt px-3 py-2.5 text-xs leading-relaxed text-admin-muted">
+          <span className="font-semibold text-admin-ink">
+            Best size: {guidance.recommended}
+          </span>{" "}
+          &middot; {guidance.ratio}. {guidance.note}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <input

@@ -141,6 +141,7 @@ export function CategoryDrawer({
                 idPrefix="c-banner"
                 value={draft.banner}
                 onChange={(banner) => patch({ banner })}
+                slot="collectionBanner"
               />
             </Field>
           ) : null}
@@ -150,6 +151,7 @@ export function CategoryDrawer({
               value={draft.image}
               onChange={(image) => patch({ image })}
               idPrefix="c-image"
+              slot="category"
             />
           </Field>
 

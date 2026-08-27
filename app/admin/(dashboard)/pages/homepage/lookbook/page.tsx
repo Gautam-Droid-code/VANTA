@@ -93,6 +93,7 @@ export default function LookbookEditorPage() {
                       value={slide.image}
                       onChange={(image) => patch(i, { image })}
                       idPrefix={`slide-${i}`}
+                      slot="lookbook"
                     />
                   </Field>
 
