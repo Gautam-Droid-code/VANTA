@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { BrandStatementContent, HeroContent, HomepageContent, Product } from "@/data/types";
 import type { SiteContent } from "./contentStore";
+import { isBrokenHref } from "./linkHref";
 
 /**
  * Runtime validation for anything arriving from a browser.
@@ -33,6 +34,23 @@ const nonEmpty = strict ? z.string().trim().min(1) : z.string();
 /** Alt text is intentionally allowed to be empty: that marks it decorative. */
 const altText = z.string();
 
+/**
+ * A link address.
+ *
+ * Only the unambiguously-broken shape is refused — a scheme buried inside a
+ * path, like "/https:example.com", which is a valid path that can only ever
+ * 404. Whether "/collections/new" exists is not knowable here, and this
+ * project links to plenty of routes that do not exist yet on purpose.
+ *
+ * Publish-time only: a draft may hold a half-typed address.
+ */
+const hrefField = strict
+  ? nonEmpty.refine((v) => !isBrokenHref(v), {
+      message:
+        "Looks like a web address inside a page path — it would open a “page not found”.",
+    })
+  : z.string();
+
 const backdrop = z.enum(["red", "orange", "sunset", "graphite"]);
 
 const imageAsset = z.object({
@@ -45,11 +63,11 @@ const imageAsset = z.object({
 
 const link = z.object({
   label: nonEmpty,
-  href: nonEmpty,
+  href: hrefField,
   external: z.boolean().optional(),
 });
 
-const cta = z.object({ label: nonEmpty, href: nonEmpty });
+const cta = z.object({ label: nonEmpty, href: hrefField });
 
 const headlineSegment = z.object({ text: z.string(), accent: z.boolean().optional() });
 /** A line is a list of segments; a headline is a list of lines. */

@@ -159,6 +159,12 @@ export function Navbar({ nav }: NavbarProps) {
                   <li key={link.href} className="flex-none">
                     <Link
                       href={link.href}
+                      /* Honours the same `external` flag the footer does.
+                         Without `rel="noopener"` a link opened in a new tab
+                         hands the destination a handle on this one. */
+                      {...(link.external
+                        ? { target: "_blank", rel: "noopener noreferrer" }
+                        : {})}
                       aria-current={current ? "page" : undefined}
                       className={cn(
                         "group relative block whitespace-nowrap py-1 text-label font-bold uppercase transition-colors duration-200 ease-in-out",
@@ -241,6 +247,9 @@ export function Navbar({ nav }: NavbarProps) {
                 >
                   <Link
                     href={link.href}
+                    {...(link.external
+                      ? { target: "_blank", rel: "noopener noreferrer" }
+                      : {})}
                     onClick={() => setMenuOpen(false)}
                     className="headline block py-5 text-4xl text-bone"
                   >

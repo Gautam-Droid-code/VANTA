@@ -1,6 +1,7 @@
 "use client";
 
 import type { Link as LinkType } from "@/data/types";
+import { checkHref } from "@/lib/linkHref";
 import { Field, TextInput, Toggle } from "./ui";
 import { AddButton, ReorderRow, moveItem } from "./ReorderableList";
 
@@ -28,7 +29,9 @@ export function LinkListEditor({
   return (
     <div>
       <ul className="space-y-2">
-        {value.map((link, i) => (
+        {value.map((link, i) => {
+          const problem = checkHref(link.href, link.external);
+          return (
           <ReorderRow
             key={i}
             index={i}
@@ -61,8 +64,34 @@ export function LinkListEditor({
                   id={`link-href-${i}`}
                   value={link.href}
                   onChange={(e) => patch(i, { href: e.target.value })}
+                  aria-invalid={problem ? true : undefined}
+                  aria-describedby={problem ? `link-href-problem-${i}` : undefined}
                 />
               </Field>
+
+              {/* Advisory, not corrective: someone may be mid-paste, and a
+                  field that rewrites itself as you type is impossible to
+                  trust. The fix is one click away instead. */}
+              {problem ? (
+                <p
+                  id={`link-href-problem-${i}`}
+                  className="rounded-lg border border-admin-accent/25 bg-admin-accent-soft px-3 py-2.5 text-xs leading-relaxed text-admin-ink"
+                >
+                  {problem.message}
+                  {problem.suggestion ? (
+                    <>
+                      {" "}
+                      <button
+                        type="button"
+                        onClick={() => patch(i, { href: problem.suggestion! })}
+                        className="font-semibold underline underline-offset-2 hover:text-admin-accent"
+                      >
+                        Use {problem.suggestion}
+                      </button>
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
 
               <Toggle
                 checked={Boolean(link.external)}
@@ -72,10 +101,13 @@ export function LinkListEditor({
               />
             </div>
           </ReorderRow>
-        ))}
+          );
+        })}
       </ul>
 
-      <AddButton onClick={() => onChange([...value, { label: "New link", href: "/" }])}>
+      {/* Starts empty, not pre-filled with "/". The slash was what invited a
+          full address to be pasted after it, producing "/https:example.com". */}
+      <AddButton onClick={() => onChange([...value, { label: "New link", href: "" }])}>
         {addLabel}
       </AddButton>
     </div>
