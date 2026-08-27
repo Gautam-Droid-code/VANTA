@@ -11,7 +11,6 @@ import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { ProductCard } from "@/components/ProductCard";
 import { PillButton } from "@/components/ui/PillButton";
-import { RevealGroup, RevealItem } from "@/components/ui/Reveal";
 import { trustIcons } from "@/components/ui/Icons";
 
 export async function generateStaticParams() {
@@ -165,16 +164,17 @@ export default async function ProductPage({
         {related.length > 0 && (
           <section className="px-gutter py-16 lg:px-gutter-lg lg:py-24">
             <h2 className="headline text-display-sm">More in {category?.name ?? "this range"}</h2>
-            <RevealGroup className="mt-8 grid grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-3 lg:grid-cols-4 lg:gap-x-6">
+            {/* Plain, for the same reason as the collection grid: products
+                must not depend on hydration to be visible. */}
+            <div className="mt-8 grid grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-3 lg:grid-cols-4 lg:gap-x-6">
               {related.map((p) => (
-                <RevealItem key={p.id}>
-                  <ProductCard
-                    product={p}
-                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
-                  />
-                </RevealItem>
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+                />
               ))}
-            </RevealGroup>
+            </div>
           </section>
         )}
       </main>

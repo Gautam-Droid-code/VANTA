@@ -9,7 +9,6 @@ import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { ProductCard } from "@/components/ProductCard";
 import { CollectionNav } from "@/components/CollectionNav";
-import { RevealGroup, RevealItem } from "@/components/ui/Reveal";
 
 /**
  * A collection listing.
@@ -124,16 +123,31 @@ export default async function CollectionPage({
                 </Link>
               </div>
             ) : (
-              <RevealGroup className="grid grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-3 lg:gap-x-6">
+              /*
+                No scroll reveal on the product grid.
+                Two reasons, and the second is the important one. A reveal
+                trigger asks for a percentage of the element, and this grid is
+                as tall as the collection is long — at twelve products it is
+                ~1970px, of which only ~430px is ever on screen, so the 25%
+                threshold was never met and the whole catalogue stayed at
+                opacity 0 until the reader scrolled.
+
+                Tuning the threshold would have fixed that case and left the
+                real problem: Framer writes `opacity: 0` into the server HTML,
+                so anything that stops hydration finishing — slow network,
+                a JS error, an old browser — leaves a listing page with no
+                products on it. That is the one thing this page exists to show.
+                It renders plainly and is always visible.
+              */
+              <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-3 lg:gap-x-6">
                 {products.map((product) => (
-                  <RevealItem key={product.id}>
-                    <ProductCard
-                      product={product}
-                      sizes="(min-width: 1024px) 28vw, (min-width: 640px) 33vw, 50vw"
-                    />
-                  </RevealItem>
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    sizes="(min-width: 1024px) 28vw, (min-width: 640px) 33vw, 50vw"
+                  />
                 ))}
-              </RevealGroup>
+              </div>
             )}
           </div>
         </div>

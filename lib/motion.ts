@@ -62,5 +62,6 @@ export const lineReveal: Variants = {
 /** Shared viewport config so sections trigger consistently. */
 export const inView = { once: true, amount: 0.25, margin: "0px 0px -10% 0px" } as const;
 
+
 /** Tactile press feedback for buttons and tappable rows. */
 export const tapScale = { scale: 0.97 };
