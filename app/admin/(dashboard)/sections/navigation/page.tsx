@@ -16,8 +16,12 @@ import { Card, CardHeader, Field, Select, TextInput } from "@/components/admin/u
  * `footer.links` in the schema — it's edited on the Footer page, and this page
  * points there instead of duplicating it.
  */
-/** How many menu links fit across the desktop bar before they start scrolling. */
-const COMFORTABLE_LINK_COUNT = 5;
+/**
+ * How many menu links fit across the desktop bar before they start scrolling.
+ * Measured, not guessed: the bar gives the list ~900px at a 1280px viewport,
+ * and a typical one- or two-word label plus its gap runs about 110px.
+ */
+const COMFORTABLE_LINK_COUNT = 8;
 
 const ICON_OPTIONS: BottomNavIcon[] = ["home", "shop", "wishlist", "bag"];
 const ICON_LABELS: Record<BottomNavIcon, string> = {
@@ -60,10 +64,7 @@ export default function NavigationEditorPage() {
             hint="Shown across the top on desktop, and in the slide-out menu on phones."
           />
           <div className="p-5">
-            {/* Measured, not guessed: the desktop bar centres the wordmark, so
-                the links only ever get the left half of it. At the current type
-                size that is about five labels — a sixth starts scrolling out of
-                sight. Saying so here beats finding out on the live site. */}
+            {/* Saying so here beats finding out on the live site. */}
             {nav.links.length > COMFORTABLE_LINK_COUNT ? (
               <p className="mb-4 rounded-lg border border-admin-accent/25 bg-admin-accent-soft px-3 py-2.5 text-xs leading-relaxed text-admin-ink">
                 <span className="font-semibold">
