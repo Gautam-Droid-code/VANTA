@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Product } from "@/data/types";
 import { backdropClass } from "@/lib/backdrops";
 import { formatINR, cn } from "@/lib/format";
+import { SaveButton } from "@/components/SaveButton";
 
 interface ProductCardProps {
   product: Product;
@@ -35,6 +36,8 @@ export function ProductCard({ product, sizes = "(min-width: 1024px) 25vw, 70vw" 
             sizes={sizes}
             className="object-cover object-center transition-transform duration-500 ease-in-out motion-safe:group-hover:scale-105"
           />
+
+          <SaveButton productId={product.id} productName={product.name} overlay />
 
           {product.badge && (
             <span className="absolute left-0 top-0 bg-bone px-2 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-ink">

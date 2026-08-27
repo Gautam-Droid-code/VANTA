@@ -819,6 +819,55 @@ touches the schema, the store, the homepage editor and validation, so it was
 left alone rather than folded into an unrelated change. It gets harder the
 longer it waits.
 
+## 21. Bag and wishlist
+
+Both are browser-local, both store ids and nothing else, and both share
+`lib/persistentStore.ts`.
+
+### Ids only, never a copy of the product
+
+A line holds an id and (for the bag) a quantity. Names, prices and images are
+resolved against the live catalogue wherever the list is rendered. Storing a
+copy would mean a bag showing whatever the price was on the day the item went
+in — and totalling from it. Editing a price in `/admin` changes an existing
+bag immediately, which is the correct behaviour.
+
+### `useSyncExternalStore`, not state in an effect
+
+Both genuinely live outside React. That API gives the server snapshot for free
+— always empty, which is all a server can honestly know about a browser's
+storage — so hydration never mismatches, and the cross-tab `storage` event is
+just another source on the same subscription. Two tabs are one bag.
+
+Badges wait on a `hydrated` flag before rendering. A count drawn before the
+stored list is read would either mismatch the server markup or flash a wrong
+number.
+
+### Stale lines are removed, not just hidden
+
+A product can leave the catalogue while it sits in someone's list. Those lines
+are pruned from storage by the page that holds the catalogue, and the store
+reports how many went so the notice can survive the removal it describes. The
+alternative — hiding them — leaves the header badge counting items the page
+will never show.
+
+### Three bugs that only testing found
+
+- Two fast clicks on the quantity controls both computed from the last
+  *rendered* quantity, so the second did nothing: five with three rapid
+  decreases landed on four. The controls apply a delta against stored state.
+- The bag summary counted unresolved lines, reading "8 items" beside a
+  subtotal for three.
+- The wishlist heart sits inside the card's link to the product, so saving
+  also navigated away. It stops the event.
+
+### What is deliberately inert
+
+Checkout says "coming soon" rather than looking like a button, and delivery
+says "calculated at checkout" rather than promising free shipping there is no
+rule for. A control that looks live and goes nowhere is worst at the exact
+moment someone has decided to buy.
+
 ## Known issues / follow-ups
 
 - **Product imagery is doubled up.** There are only 5 photos in the Stitch
@@ -875,7 +924,10 @@ longer it waits.
   links in `/admin`.
 - **Search is decorative.** The navbar search button has no handler; it is an
   icon with an `aria-label` and nothing behind it.
-- **No cart or wishlist.** `/bag` and `/wishlist` do not exist, and "Add to
-  bag" on a product page is a link to `/bag` rather than a button that adds
-  anything — deliberately, so the page never claims to have done something it
-  has not.
+- **No checkout.** The bag and wishlist work, but the checkout control is
+  inert and says so. Nothing behind it exists — no payment, no orders, no
+  addresses.
+- **Bag and wishlist are browser-local.** They live in `localStorage`, so they
+  do not follow a shopper between devices and vanish if site data is cleared.
+  That is the right shape while there are no accounts; it is the wrong shape
+  the moment there are.

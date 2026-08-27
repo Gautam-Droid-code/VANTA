@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import type { BottomNavItem } from "@/data/types";
 import { bottomNavIcons } from "@/components/ui/Icons";
 import { useBag } from "@/components/BagProvider";
+import { useWishlist } from "@/components/WishlistProvider";
 import { duration, ease, tapScale } from "@/lib/motion";
 import { cn } from "@/lib/format";
 
@@ -22,8 +23,14 @@ const MotionLink = motion.create(Link);
 export function BottomNav({ items }: BottomNavProps) {
   const pathname = usePathname();
   const { count, hydrated } = useBag();
-  // See the note in Navbar: the bag is client-only, so the badge waits.
+  const { count: savedCount, hydrated: wishlistHydrated } = useWishlist();
+  // See the note in Navbar: both live in the browser, so the badges wait.
   const badgeCount = hydrated ? count : 0;
+  const wishlistCount = wishlistHydrated ? savedCount : 0;
+
+  /** How many to show on a given tab, or 0 for tabs that carry no count. */
+  const badgeFor = (icon: string) =>
+    icon === "bag" ? badgeCount : icon === "wishlist" ? wishlistCount : 0;
 
   return (
     <nav
@@ -60,12 +67,12 @@ export function BottomNav({ items }: BottomNavProps) {
 
                 <span className="relative">
                   <Icon className="h-5 w-5" />
-                  {item.icon === "bag" && badgeCount > 0 && (
+                  {badgeFor(item.icon) > 0 && (
                     <span
                       aria-hidden
                       className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-flare-red px-1 text-[10px] font-bold leading-none text-bone"
                     >
-                      {badgeCount > 9 ? "9+" : badgeCount}
+                      {badgeFor(item.icon) > 9 ? "9+" : badgeFor(item.icon)}
                     </span>
                   )}
                 </span>
@@ -78,9 +85,9 @@ export function BottomNav({ items }: BottomNavProps) {
                       computation drops the whitespace between sibling text
                       nodes ("2ITEMS"). `normal-case` stops the parent's
                       uppercase leaking into the announced name. */}
-                  {item.icon === "bag" && badgeCount > 0 && (
+                  {badgeFor(item.icon) > 0 && (
                     <span className="sr-only normal-case">
-                      {`, ${badgeCount} ${badgeCount === 1 ? "item" : "items"}`}
+                      {`, ${badgeFor(item.icon)} ${badgeFor(item.icon) === 1 ? "item" : "items"}`}
                     </span>
                   )}
                 </span>

@@ -2,6 +2,7 @@
 
 import { MotionConfig } from "framer-motion";
 import { BagProvider } from "@/components/BagProvider";
+import { WishlistProvider } from "@/components/WishlistProvider";
 
 /**
  * `reducedMotion="user"` makes every Framer Motion animation in the tree
@@ -10,7 +11,9 @@ import { BagProvider } from "@/components/BagProvider";
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <MotionConfig reducedMotion="user">
-      <BagProvider>{children}</BagProvider>
+      <BagProvider>
+        <WishlistProvider>{children}</WishlistProvider>
+      </BagProvider>
     </MotionConfig>
   );
 }

@@ -7,6 +7,7 @@ import {
   useMemo,
   useSyncExternalStore,
 } from "react";
+import { createPersistentStore } from "@/lib/persistentStore";
 
 /**
  * The bag.
@@ -92,77 +93,22 @@ function parseLines(raw: string | null): BagLine[] {
 const clampQty = (qty: number) => Math.max(0, Math.min(MAX_QTY, Math.floor(qty)));
 
 /**
- * localStorage as an external store.
- *
- * `useSyncExternalStore` rather than reading into state inside an effect: the
- * bag genuinely lives outside React, and this is the API for that. It gives
- * the server snapshot for free (an empty bag, which is all the server can
- * honestly know), so hydration never mismatches, and it makes the cross-tab
- * `storage` event just another source the same subscription listens to.
- */
-const listeners = new Set<() => void>();
-
-/**
- * `getSnapshot` must return the same reference until something actually
- * changes, or React re-renders forever. The parsed value is cached against
- * the raw string it came from.
- */
-let cachedRaw: string | null = null;
-let cachedLines: BagLine[] = [];
-
-const EMPTY: BagLine[] = [];
-
-/**
  * How many lines the last prune dropped.
  *
- * Module state rather than React state so it can be set from the prune itself
- * and read through the same subscription — no update-inside-an-effect, and no
+ * Module state rather than React state so it can be set by the prune itself
+ * and read through the same subscription — no update inside an effect, and no
  * ref written during render. It resets naturally: once the stale lines are
  * gone, the next page load prunes nothing and reports zero.
  */
 let dropped = 0;
 
-function getSnapshot(): BagLine[] {
-  let raw: string | null = null;
-  try {
-    raw = window.localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return EMPTY;
-  }
-  if (raw !== cachedRaw) {
-    cachedRaw = raw;
-    cachedLines = parseLines(raw);
-  }
-  return cachedLines;
-}
+const store = createPersistentStore<BagLine[]>({
+  key: STORAGE_KEY,
+  empty: [],
+  parse: parseLines,
+});
 
-/** The server has no bag to read, and must not guess at one. */
-const getServerSnapshot = (): BagLine[] => EMPTY;
-
-function subscribe(onChange: () => void): () => void {
-  listeners.add(onChange);
-  // Another tab writing the same key is the same bag changing.
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) onChange();
-  };
-  window.addEventListener("storage", onStorage);
-  return () => {
-    listeners.delete(onChange);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-function write(next: BagLine[]): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  } catch {
-    // Private browsing, or storage full. Nothing useful to tell the visitor;
-    // the in-memory snapshot below still keeps this page view working.
-    cachedRaw = null;
-    cachedLines = next;
-  }
-  listeners.forEach((l) => l());
-}
+const { subscribe, getSnapshot, getServerSnapshot, write } = store;
 
 export function BagProvider({ children }: { children: React.ReactNode }) {
   const lines = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

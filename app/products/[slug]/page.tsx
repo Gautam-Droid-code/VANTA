@@ -11,6 +11,7 @@ import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { ProductCard } from "@/components/ProductCard";
 import { AddToBagButton } from "@/components/AddToBagButton";
+import { SaveButton } from "@/components/SaveButton";
 import { trustIcons } from "@/components/ui/Icons";
 
 export async function generateStaticParams() {
@@ -109,8 +110,9 @@ export default async function ProductPage({
               {product.image.alt}
             </p>
 
-            <div className="mt-8">
+            <div className="mt-8 flex flex-wrap items-start gap-3">
               <AddToBagButton productId={product.id} />
+              <SaveButton productId={product.id} productName={product.name} />
             </div>
 
             {/* The buying facts, in the same spec-sheet register as the rest
