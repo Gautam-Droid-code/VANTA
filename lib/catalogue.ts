@@ -59,6 +59,48 @@ export async function getAllCollections(): Promise<Category[]> {
   return homepage.categories.items;
 }
 
+export interface CollectionLink {
+  slug: string;
+  name: string;
+  href: string;
+  count: number;
+}
+
+/**
+ * Every collection a visitor can reach, for the listing page's side nav.
+ *
+ * Views and categories are deliberately in one list. To someone browsing,
+ * "New Drops" and "Jackets" are the same kind of thing — a way into the
+ * catalogue — and splitting them by how they happen to be computed would be
+ * exposing an implementation detail as navigation.
+ *
+ * Counts are computed here rather than read from `Category.itemCount`, which
+ * is a hand-typed field and drifts. A number sitting next to a grid the
+ * visitor can count themselves has to be right.
+ */
+export async function getCollectionLinks(): Promise<CollectionLink[]> {
+  const { homepage, products } = await contentStore.read();
+
+  const view = (slug: keyof typeof VIEWS): CollectionLink => ({
+    slug,
+    name: VIEWS[slug].name,
+    href: `/collections/${slug}`,
+    count: VIEWS[slug].select(products).length,
+  });
+
+  return [
+    view("new"),
+    ...homepage.categories.items.map((c) => ({
+      slug: c.id,
+      name: c.name,
+      href: c.href,
+      count: products.filter((p) => p.categoryId === c.id).length,
+    })),
+    view("sale"),
+    view("all"),
+  ];
+}
+
 export async function getProduct(slug: string): Promise<Product | null> {
   const { products } = await contentStore.read();
   return products.find((p) => p.id === slug) ?? null;
