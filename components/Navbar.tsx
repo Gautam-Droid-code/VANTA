@@ -41,10 +41,13 @@ export function Navbar({ nav }: NavbarProps) {
       >
         <nav
           aria-label="Primary"
-          className="mx-auto grid h-[var(--nav-h)] max-w-container grid-cols-[1fr_auto_1fr] items-center gap-4 px-gutter lg:h-16 lg:px-gutter-lg"
+          className="mx-auto grid h-[var(--nav-h)] max-w-container grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-gutter lg:h-16 lg:px-gutter-lg"
         >
           {/* Left: hamburger (mobile) / links (desktop) */}
-          <div className="flex items-center justify-start">
+          {/* `min-w-0`: a grid track sized `1fr` still refuses to shrink below
+              its content, so a long link list pushed the centred wordmark off
+              centre instead of staying inside its own column. */}
+          <div className="flex min-w-0 items-center justify-start">
             <motion.button
               type="button"
               onClick={() => setMenuOpen(true)}
@@ -56,12 +59,18 @@ export function Navbar({ nav }: NavbarProps) {
               <MenuIcon className="h-5 w-5" />
             </motion.button>
 
-            <ul className="hidden items-center gap-7 lg:flex">
+            {/* The link list is editor-controlled and unbounded, so it has to
+                degrade rather than break the bar. It scrolls if it outgrows its
+                column; `flex-none` on the items stops them being squeezed. */}
+            <ul className="hidden min-w-0 items-center gap-5 overflow-x-auto lg:flex xl:gap-7 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
               {nav.links.map((link) => (
-                <li key={link.href}>
+                <li key={link.href} className="flex-none">
                   <Link
                     href={link.href}
-                    className="group relative text-label font-bold uppercase text-bone/70 transition-colors duration-200 ease-in-out hover:text-bone"
+                    /* `whitespace-nowrap`: without it a two-word label like
+                       "New Drops" breaks across two lines and the whole bar
+                       grows to fit it. */
+                    className="group relative whitespace-nowrap text-label font-bold uppercase text-bone/70 transition-colors duration-200 ease-in-out hover:text-bone"
                   >
                     {link.label}
                     <span className="absolute -bottom-1 left-0 h-px w-0 bg-bone transition-[width] duration-300 ease-in-out group-hover:w-full" />

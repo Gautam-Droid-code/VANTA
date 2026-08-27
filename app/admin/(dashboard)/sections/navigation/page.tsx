@@ -16,6 +16,9 @@ import { Card, CardHeader, Field, Select, TextInput } from "@/components/admin/u
  * `footer.links` in the schema — it's edited on the Footer page, and this page
  * points there instead of duplicating it.
  */
+/** How many menu links fit across the desktop bar before they start scrolling. */
+const COMFORTABLE_LINK_COUNT = 5;
+
 const ICON_OPTIONS: BottomNavIcon[] = ["home", "shop", "wishlist", "bag"];
 const ICON_LABELS: Record<BottomNavIcon, string> = {
   home: "Home",
@@ -57,6 +60,22 @@ export default function NavigationEditorPage() {
             hint="Shown across the top on desktop, and in the slide-out menu on phones."
           />
           <div className="p-5">
+            {/* Measured, not guessed: the desktop bar centres the wordmark, so
+                the links only ever get the left half of it. At the current type
+                size that is about five labels — a sixth starts scrolling out of
+                sight. Saying so here beats finding out on the live site. */}
+            {nav.links.length > COMFORTABLE_LINK_COUNT ? (
+              <p className="mb-4 rounded-lg border border-admin-accent/25 bg-admin-accent-soft px-3 py-2.5 text-xs leading-relaxed text-admin-ink">
+                <span className="font-semibold">
+                  {nav.links.length} links may not all fit.
+                </span>{" "}
+                About {COMFORTABLE_LINK_COUNT} fit across the top on a desktop
+                screen. Any beyond that scroll sideways and most visitors will
+                never see them. All of them still appear in the phone menu.
+                Consider removing some, or shortening the longer labels.
+              </p>
+            ) : null}
+
             <LinkListEditor
               value={nav.links}
               onChange={(links) => updateSection("nav", { ...nav, links })}
