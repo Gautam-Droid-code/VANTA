@@ -61,6 +61,16 @@ export const ShopIcon = (p: IconProps) => (
   </svg>
 );
 
+/** Four cells — the conventional "browse everything" affordance. */
+export const GridIcon = (p: IconProps) => (
+  <svg {...base} {...p}>
+    <rect x="3.5" y="3.5" width="7" height="7" rx="1" />
+    <rect x="13.5" y="3.5" width="7" height="7" rx="1" />
+    <rect x="3.5" y="13.5" width="7" height="7" rx="1" />
+    <rect x="13.5" y="13.5" width="7" height="7" rx="1" />
+  </svg>
+);
+
 export const ArrowRightIcon = (p: IconProps) => (
   <svg {...base} {...p}>
     <path d="M5 12h14M13 6l6 6-6 6" />

@@ -7,7 +7,22 @@
     --ink: #0d0d0d;
     --bone: #f5f5f0;
     --nav-h: 3.5rem;
+    /* Row two of the header — the catalogue strip. Only rendered from `lg`. */
+    --nav-row2-h: 0rem;
+    /*
+     * Total height of the fixed header. Anything that has to start below it
+     * should be positioned from this rather than from a copied number, or
+     * adding a row to the header silently slides it under the content.
+     */
+    --header-h: calc(var(--nav-h) + var(--nav-row2-h));
     --bottom-nav-h: 4rem;
+  }
+
+  @screen lg {
+    :root {
+      --nav-h: 4rem;
+      --nav-row2-h: 2.75rem;
+    }
   }
 
   html {

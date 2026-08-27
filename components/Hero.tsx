@@ -17,7 +17,7 @@ interface HeroProps {
 export function Hero({ hero }: HeroProps) {
   return (
     <section className="relative">
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center lg:gap-12 lg:pl-gutter-lg lg:pt-28 xl:gap-16">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center lg:gap-12 lg:pl-gutter-lg lg:pt-[calc(var(--header-h)+2rem)] xl:gap-16">
         {/* Image — bleeds to the right edge on desktop, on its accent backdrop */}
         <div
           data-hero-media

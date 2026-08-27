@@ -9,7 +9,7 @@ import { useScrolled } from "@/lib/useScrolled";
 import { useScrollProgress } from "@/lib/useScrollProgress";
 import { useBag } from "@/components/BagProvider";
 import { duration, ease, stagger, tapScale } from "@/lib/motion";
-import { BagIcon, CloseIcon, MenuIcon, SearchIcon } from "@/components/ui/Icons";
+import { BagIcon, CloseIcon, GridIcon, MenuIcon, SearchIcon } from "@/components/ui/Icons";
 import { cn } from "@/lib/format";
 
 interface NavbarProps {
@@ -49,18 +49,21 @@ export function Navbar({ nav }: NavbarProps) {
           scrolled || menuOpen ? "bg-ink/80 backdrop-blur-xl" : "bg-transparent",
         )}
       >
+        {/*
+          Two rows, following the brief's reference.
+
+          Row one is the shop's fixed furniture — who you are, what you are
+          looking for, what you are carrying. Row two is the catalogue, which is
+          editor-controlled and changes. Splitting them means the link list gets
+          a full-width row of its own, so the count that fits stopped being a
+          design constraint at all.
+
+          Deliberately NOT carrying the reference's account chip: this storefront
+          has no accounts, and a signed-in avatar would be inventing a feature.
+        */}
         <nav
           aria-label="Primary"
-          /**
-           * Wordmark left, not centred.
-           *
-           * A centred wordmark splits the bar into two fixed halves and caps
-           * the menu at roughly five links — the list had started scrolling out
-           * of sight. Anchoring it left hands the whole middle to the links,
-           * which is also the arrangement people scan fastest: brand, then
-           * where to go, then what they are carrying.
-           */
-          className="mx-auto flex h-[var(--nav-h)] max-w-container items-center gap-4 px-gutter lg:h-16 lg:gap-8 lg:px-gutter-lg"
+          className="mx-auto flex h-[var(--nav-h)] max-w-container items-center gap-3 px-gutter lg:gap-8 lg:px-gutter-lg"
         >
           <motion.button
             type="button"
@@ -80,43 +83,37 @@ export function Navbar({ nav }: NavbarProps) {
             {nav.wordmark}
           </Link>
 
-          {/* The list is editor-controlled and unbounded, so it still degrades
-              by scrolling rather than breaking the bar — there is just far more
-              room before that happens now. */}
-          <ul className="hidden min-w-0 flex-1 items-center gap-6 overflow-x-auto lg:flex xl:gap-8 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-            {nav.links.map((link) => {
-              const current = isCurrent(link.href);
-              return (
-                <li key={link.href} className="flex-none">
-                  <Link
-                    href={link.href}
-                    aria-current={current ? "page" : undefined}
-                    className={cn(
-                      "group relative block whitespace-nowrap py-1 text-label font-bold uppercase transition-colors duration-200 ease-in-out",
-                      current ? "text-bone" : "text-bone/60 hover:text-bone",
-                    )}
-                  >
-                    {link.label}
-                    {/* Marks the page you are on and the one you are pointing
-                        at with the same rule, in the accent that means
-                        "active" everywhere else on the site. */}
-                    <span
-                      className={cn(
-                        "absolute -bottom-0.5 left-0 h-px bg-flare-red transition-[width] duration-300 ease-in-out",
-                        current ? "w-full" : "w-0 group-hover:w-full",
-                      )}
-                    />
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          {/*
+            A real field rather than the icon-only button that was here, because
+            search is how people shop a catalogue. The placeholder says "coming
+            soon" because it is: there is no search route yet, and a box that
+            silently swallows a query is worse than one that admits it. Same
+            wording the admin already uses, so the two surfaces agree.
+          */}
+          <form
+            role="search"
+            onSubmit={(e) => e.preventDefault()}
+            className="relative ml-auto hidden min-w-0 flex-1 sm:block lg:ml-0 lg:max-w-xl"
+          >
+            <label htmlFor="site-search" className="sr-only">
+              Search
+            </label>
+            <input
+              id="site-search"
+              type="search"
+              placeholder="Search — coming soon"
+              className="h-9 w-full rounded-full border border-bone/15 bg-bone/[0.06] pl-4 pr-10 text-sm text-bone placeholder:text-bone/40 transition-colors duration-200 focus:border-bone/30 focus:bg-bone/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-bone/20"
+            />
+            <SearchIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-bone/50" />
+          </form>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1 lg:ml-0">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0">
+            {/* Phones don't get the field — it would crowd out the wordmark —
+                so the icon stays as the way in on small screens. */}
             <motion.button
               type="button"
               whileTap={tapScale}
-              className="p-2 text-bone transition-opacity duration-200 ease-in-out hover:opacity-70"
+              className="p-2 text-bone transition-opacity duration-200 ease-in-out hover:opacity-70 sm:hidden"
               aria-label="Search"
             >
               <SearchIcon className="h-5 w-5" />
@@ -140,6 +137,48 @@ export function Navbar({ nav }: NavbarProps) {
             </Link>
           </div>
         </nav>
+
+        {/* Row two — the catalogue. Hidden on phones, where the same links are
+            already the whole of the slide-out menu. */}
+        <div className="hidden border-t border-bone/10 lg:block">
+          <div className="mx-auto flex h-[var(--nav-row2-h)] max-w-container items-center gap-6 px-gutter-lg">
+            <Link
+              href="/collections"
+              className="flex shrink-0 items-center gap-2 whitespace-nowrap text-label font-bold uppercase text-bone/70 transition-colors duration-200 hover:text-bone"
+            >
+              <GridIcon className="h-3.5 w-3.5" />
+              All categories
+            </Link>
+
+            <span aria-hidden className="h-4 w-px shrink-0 bg-bone/15" />
+
+            <ul className="flex min-w-0 flex-1 items-center justify-between gap-6 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+              {nav.links.map((link) => {
+                const current = isCurrent(link.href);
+                return (
+                  <li key={link.href} className="flex-none">
+                    <Link
+                      href={link.href}
+                      aria-current={current ? "page" : undefined}
+                      className={cn(
+                        "group relative block whitespace-nowrap py-1 text-label font-bold uppercase transition-colors duration-200 ease-in-out",
+                        current ? "text-bone" : "text-bone/60 hover:text-bone",
+                      )}
+                    >
+                      {link.label}
+                      <span
+                        className={cn(
+                          "absolute -bottom-0.5 left-0 h-px bg-flare-red transition-[width] duration-300 ease-in-out",
+                          current ? "w-full" : "w-0 group-hover:w-full",
+                        )}
+                      />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
 
         {/*
           Reading position, as an instrument rather than an ornament. The page
