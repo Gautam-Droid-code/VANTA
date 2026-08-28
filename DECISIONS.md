@@ -899,6 +899,44 @@ This also resolved two of the three dead nav links: `/collections/clothing` and
 `/collections/accessories` now exist. `/collections/series-026` does not — that
 one is a drop, not a category, and is still a broken link in the lookbook.
 
+## 23. Search
+
+`/search?q=` over the published catalogue, matched on the server.
+
+**No index, no ranking library, no fuzzy matching.** The catalogue is tens of
+products, not tens of thousands; anything more would be machinery standing in
+for an answer. It can be replaced when the catalogue justifies it — the
+matching is one file with no callers beyond the page.
+
+**What it searches is the point.** A shopper types "jacket", "cargo" or
+"parka", and only some of those are in a product's name. Category name and alt
+text are searched too, because that is where the garment is actually described.
+Searching names alone returns nothing for most of what people type.
+
+**Every token must match.** "technical shell" returns fewer results than
+"shell", not more — someone who typed two words meant both.
+
+**Ranking is by where the match landed**: a name starting with the query, then
+a name containing it, then a match on category or description only, with the
+whole query appearing intact scoring above the same words scattered. Ties break
+alphabetically so results never reshuffle between identical searches.
+
+**Collections are offered alongside products.** Searching "jackets" shows the
+Jackets collection as a chip above twelve products, because that is usually
+what was meant. Groups are excluded — Clothing and Jackets would both match and
+offer two links to overlapping lists.
+
+### The form works before JavaScript does
+
+`action="/search"` and `method="get"` on a real form, with the submit handler
+only upgrading it to a client-side navigation. Someone can type and press Enter
+the moment the markup arrives; if hydration never finishes, the browser submits
+it anyway. An empty query is refused rather than landing on a results page for
+nothing.
+
+Phones get a link to `/search` rather than the field, which would crowd out the
+wordmark at that width.
+
 ## Known issues / follow-ups
 
 - **The policy pages are placeholder text.** `/returns`, `/shipping`, `/terms`
@@ -960,8 +998,11 @@ one is a drop, not a category, and is still a broken link in the lookbook.
   `/collections/series-026`.
   `/collections/series-026` is the remaining one: it is a drop rather than a
   category, so it needs either a category, a tag, or a repointed link.
-- **Search is decorative.** The navbar search button has no handler; it is an
-  icon with an `aria-label` and nothing behind it.
+- **Search matches names, categories and descriptions, not attributes.** There
+  is no colour, size or material field on a product, so "black" only finds the
+  handful of products whose alt text happens to say it. The generated catalogue
+  describes shape ("technical shell jacket") rather than colour. Better alt text
+  — or real attribute fields — is what makes those searches work.
 - **No checkout.** The bag and wishlist work, but the checkout control is
   inert and says so. Nothing behind it exists — no payment, no orders, no
   addresses.

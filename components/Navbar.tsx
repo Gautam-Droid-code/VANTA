@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import type { NavContent } from "@/data/types";
 import { useScrolled } from "@/lib/useScrolled";
@@ -21,6 +21,7 @@ export function Navbar({ nav }: NavbarProps) {
   const scrolled = useScrolled(8);
   const progress = useScrollProgress();
   const pathname = usePathname();
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const { count, hydrated } = useBag();
   const { count: savedCount, hydrated: wishlistHydrated } = useWishlist();
@@ -92,34 +93,57 @@ export function Navbar({ nav }: NavbarProps) {
             silently swallows a query is worse than one that admits it. Same
             wording the admin already uses, so the two surfaces agree.
           */}
+          {/*
+            A real GET form, not a handler.
+
+            `action` + `method` means it works before hydration and without JS
+            at all — someone can type and press Enter the moment the markup
+            arrives. The submit handler only upgrades that to a client-side
+            navigation; if JS never runs, the browser does the same thing.
+          */}
           <form
             role="search"
-            onSubmit={(e) => e.preventDefault()}
+            action="/search"
+            method="get"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const value = new FormData(e.currentTarget).get("q");
+              const next = typeof value === "string" ? value.trim() : "";
+              // An empty submit would land on a results page for nothing.
+              if (!next) return;
+              router.push(`/search?q=${encodeURIComponent(next)}`);
+            }}
             className="relative ml-auto hidden min-w-0 flex-1 sm:block lg:ml-0"
           >
             <label htmlFor="site-search" className="sr-only">
-              Search
+              Search products
             </label>
             <input
               id="site-search"
+              name="q"
               type="search"
-              placeholder="Search — coming soon"
+              placeholder="Search for a piece, a category, a colour"
               className="h-9 w-full rounded-full border border-bone/15 bg-bone/[0.06] pl-4 pr-10 text-sm text-bone placeholder:text-bone/40 transition-colors duration-200 focus:border-bone/30 focus:bg-bone/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-bone/20"
             />
-            <SearchIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-bone/50" />
+            <button
+              type="submit"
+              aria-label="Search"
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full p-2 text-bone/50 transition-colors hover:text-bone"
+            >
+              <SearchIcon className="h-4 w-4" />
+            </button>
           </form>
 
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0">
             {/* Phones don't get the field — it would crowd out the wordmark —
-                so the icon stays as the way in on small screens. */}
-            <motion.button
-              type="button"
-              whileTap={tapScale}
+                so the icon goes to the search page, which has one. */}
+            <Link
+              href="/search"
               className="p-2 text-bone transition-opacity duration-200 ease-in-out hover:opacity-70 sm:hidden"
               aria-label="Search"
             >
               <SearchIcon className="h-5 w-5" />
-            </motion.button>
+            </Link>
 
             {/*
               The wishlist had no reachable link above `md`: the only one was
