@@ -901,6 +901,13 @@ one is a drop, not a category, and is still a broken link in the lookbook.
 
 ## Known issues / follow-ups
 
+- **The policy pages are placeholder text.** `/returns`, `/shipping`, `/terms`
+  and `/privacy` exist and are internally consistent with what the storefront
+  claims, but none of it has been reviewed, and the registered address, GST
+  number, grievance officer and retention periods are invented. Each page says
+  so in a notice at the top. Replace the copy and remove the notice before
+  taking payments.
+
 - **Product imagery is doubled up.** There are only 5 photos in the Stitch
   export (3 model shots, 2 product shots) but the rail needs 5 cards, so three
   model shots stand in as product imagery. Swap in real product photography via

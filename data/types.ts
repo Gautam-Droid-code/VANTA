@@ -197,6 +197,28 @@ export interface CollectionPageContent {
   };
 }
 
+/**
+ * A policy page — returns, shipping, terms, privacy.
+ *
+ * Structured as sections rather than one blob of prose so the page can render
+ * real headings, and so an editor can later change a paragraph without being
+ * handed a wall of text. Same reasoning as headlines being segments.
+ */
+export interface PolicySection {
+  heading: string;
+  /** Paragraphs. Blank lines within one are preserved at render time. */
+  body: string[];
+}
+
+export interface PolicyPage {
+  slug: string;
+  title: string;
+  /** Shown under the heading, e.g. "Last updated 28 August 2026". */
+  updated: string;
+  intro: string;
+  sections: PolicySection[];
+}
+
 export interface HomepageContent {
   nav: NavContent;
   hero: HeroContent;
