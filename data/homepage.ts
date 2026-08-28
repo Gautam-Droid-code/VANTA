@@ -9,11 +9,24 @@ import type { HomepageContent } from "./types";
 export const homepage: HomepageContent = {
   nav: {
     wordmark: "VANTA",
+    /**
+     * Deliberately short.
+     *
+     * "Collections" is not here because the bar's own "All categories" control
+     * already goes to /collections — two links to one page, side by side, is a
+     * choice a visitor has to stop and think about for no gain.
+     *
+     * "Clothing" and "Accessories" are not here either. They are groups that
+     * exist to organise the collection rail; every category they contain is one
+     * tap away through "All categories", so listing them in the top bar as well
+     * mostly repeats what is underneath it.
+     *
+     * What is left is the two views that change on their own — new arrivals and
+     * whatever is reduced — which is what a returning visitor actually comes
+     * back to check.
+     */
     links: [
       { label: "New Drops", href: "/collections/new" },
-      { label: "Clothing", href: "/collections/clothing" },
-      { label: "Accessories", href: "/collections/accessories" },
-      { label: "Collections", href: "/collections" },
       { label: "Sale", href: "/collections/sale" },
     ],
     bottomNav: [
