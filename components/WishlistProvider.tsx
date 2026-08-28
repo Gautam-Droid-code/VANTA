@@ -55,11 +55,14 @@ function parseIds(raw: string | null): string[] {
 
 let dropped = 0;
 
-const { subscribe, getSnapshot, getServerSnapshot, write } = createPersistentStore<string[]>({
+/** Exported for `components/AccountSync.tsx`; see the bag for the reasoning. */
+export const wishlistStore = createPersistentStore<string[]>({
   key: STORAGE_KEY,
   empty: [],
   parse: parseIds,
 });
+
+const { subscribe, getSnapshot, getServerSnapshot, write } = wishlistStore;
 
 export function WishlistProvider({ children }: { children: React.ReactNode }) {
   const ids = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

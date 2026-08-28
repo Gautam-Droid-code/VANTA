@@ -1,0 +1,144 @@
+// VANTA — customer accounts, sessions, saved bag/wishlist, addresses, and the
+// published site content.
+//
+// Product ids are plain strings with no foreign key. The catalogue lives in the
+// content store, not in its own table: a bag line, a saved item and an order
+// all record the id they were created against and resolve it against the live
+// catalogue when rendered. That is the same rule the browser-local bag already
+// follows, and it is why deleting a product cannot orphan a row here.
+
+generator client {
+  provider = "prisma-client"
+  // Outside `app/` on purpose — anything under the App Router is scanned for
+  // route files, and generated code has no business being looked at twice.
+  // Gitignored; `npm run build` regenerates it.
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // The URL lives in `prisma.config.ts`. Prisma 7 removed it from here.
+}
+
+/// A shopper. Distinct from the single admin user, which is still a pair of
+/// environment variables and deliberately not a row in this table — the admin
+/// is infrastructure, customers are data.
+model Customer {
+  id String @id @default(cuid())
+
+  /// Stored lowercased and trimmed. The unique index is what makes
+  /// "an account already exists" a database guarantee rather than a race.
+  email String @unique
+
+  name  String?
+  phone String?
+
+  /// scrypt, salted per row. See `lib/auth/password.ts` for the encoding.
+  /// Never selected into anything that reaches a client component.
+  passwordHash String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions  CustomerSession[]
+  addresses Address[]
+  bagLines  BagLine[]
+  wishlist  WishlistItem[]
+
+  @@index([createdAt])
+}
+
+/// A signed-in browser.
+///
+/// Sessions are rows, not self-contained JWTs, so that "sign out" and "sign out
+/// everywhere" actually revoke something. The cookie carries a random opaque
+/// token; only its SHA-256 digest is stored, so a leaked database dump cannot
+/// be replayed as a login.
+model CustomerSession {
+  id String @id @default(cuid())
+
+  /// SHA-256 of the cookie value, hex. Unique so a lookup is one index hit.
+  tokenHash String @unique
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  /// Context for the "where you're signed in" list, and for revoking a device.
+  userAgent String?
+  ip        String?
+
+  @@index([customerId])
+  @@index([expiresAt])
+}
+
+/// A delivery address. Shaped for Indian shipping and for what a courier
+/// aggregator asks for at pickup — name, phone, two lines, city, state, pincode.
+model Address {
+  id String @id @default(cuid())
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  fullName String
+  phone    String
+  line1    String
+  line2    String?
+  city     String
+  state    String
+  /// Six digits. Validated in the action, not by the column, so a bad value
+  /// comes back as a form error rather than a 500.
+  pincode  String
+  country  String  @default("IN")
+
+  /// At most one per customer; enforced by the action, which clears the flag
+  /// on the others inside the same transaction.
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId])
+}
+
+/// The signed-in bag. One row per product, quantity only — no name, price or
+/// image, for the same reason `components/BagProvider.tsx` stores none.
+model BagLine {
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  productId String
+  qty       Int
+
+  updatedAt DateTime @updatedAt
+
+  @@id([customerId, productId])
+}
+
+/// The signed-in wishlist. A set of product ids; `createdAt` is what makes
+/// "newest first" survive the trip to another device.
+model WishlistItem {
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  productId String
+  createdAt DateTime @default(now())
+
+  @@id([customerId, productId])
+}
+
+/// The published site content and the unpublished draft — the Postgres half of
+/// `lib/contentStore.ts`.
+///
+/// Two rows, keyed "published" and "draft", each holding the whole document.
+/// It is a few kilobytes, it is read as a unit and written as a unit, and
+/// shredding it into tables would put the schema in two places at once.
+model ContentDocument {
+  /// "published" | "draft"
+  key     String   @id
+  content Json
+  savedAt DateTime @default(now()) @updatedAt
+}

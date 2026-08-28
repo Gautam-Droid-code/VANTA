@@ -35,6 +35,9 @@ cp .env.local.example .env.local
 | `ADMIN_PASSWORD` | Password for signing in. Use something long and random. |
 | `ADMIN_SESSION_SECRET` | Signs the admin session cookie. **Must be ≥32 characters** — the app throws on startup if it isn't. |
 | `NEXT_PUBLIC_SITE_URL` | The site's public address, used to build share-preview links. Optional in development and on Vercel; **required elsewhere before launch**, or WhatsApp and search previews point at the wrong host. No trailing slash. |
+| `DATABASE_URL` | Postgres, **pooled** connection string. Powers customer accounts, sessions, saved bags and the address book. Optional — the site runs without it. |
+| `DIRECT_DATABASE_URL` | The unpooled connection, used only by `prisma migrate`. Optional locally. |
+| `CONTENT_STORE_DRIVER` | `postgres` or `file`. Defaults to `postgres` when `DATABASE_URL` is set. |
 
 Generate a session secret with:
 
@@ -57,6 +60,10 @@ Then open http://localhost:3000.
 | `npm run build` | Production build |
 | `npm start` | Serve the production build |
 | `npm run lint` | ESLint (flat config, `eslint.config.mjs`) |
+| `npm run db:migrate` | Create and apply a migration in development |
+| `npm run db:deploy` | Apply pending migrations (what a deploy runs) |
+| `npm run db:studio` | Browse the database in Prisma Studio |
+| `npm run content:import` | Copy `.content/site.json` into Postgres, once |
 
 ## Project structure
 
@@ -67,6 +74,9 @@ components/   UI components — presentational, render whatever data they're giv
   ui/         Shared primitives (Headline, PillButton, Reveal, Icons)
 data/         All site content as typed objects — the single source of truth
 lib/          Utilities: motion variants, formatters, hooks
+  auth/       Customer passwords, sessions, and the saved bag/wishlist
+  generated/  Prisma client — generated, gitignored, never edited
+prisma/       Database schema and migrations
 public/       Served static assets — images here are WebP only
 assets-src/   Original full-size source images, never served
 ```
@@ -209,6 +219,71 @@ Admin uses a **separate visual system** from the storefront: `admin-*` colour
 tokens, a dark sidebar, a light workspace, and one orange accent. Don't use
 `admin-*` tokens in storefront code or storefront tokens (`ink`, `bone`,
 `flare`) in admin code — see `DECISIONS.md` §14 and §16.
+
+## Customer accounts
+
+Shoppers can create an account at **`/account/register`**, sign in at
+**`/account/login`**, and manage their saved addresses at **`/account`**. This
+is entirely separate from `/admin`, which is still one username and password in
+the environment — the admin is infrastructure, customers are data.
+
+It needs Postgres. Point `DATABASE_URL` at a database, then:
+
+```bash
+npm run db:migrate     # creates the tables
+```
+
+Without `DATABASE_URL` the storefront runs exactly as before: the catalogue
+comes from the JSON content store, the bag stays browser-local, and the account
+pages report that accounts aren't available. Nothing crashes.
+
+### How the bag survives a new phone
+
+**localStorage stays the authority; the account is a mirror.** The bag and
+wishlist keep working signed out, offline, and before any JavaScript has
+spoken to the server — that does not change. What signing in adds is a second
+copy in Postgres, kept in step by `components/AccountSync.tsx`:
+
+- **At sign-in, and on every page load while signed in**, the two are merged
+  once. On a quantity clash **the larger wins, never the sum** — the common
+  case is one person adding the same jacket on a laptop and then on a phone,
+  and that person wants one jacket.
+- **After every change**, the whole list is pushed to the server, debounced,
+  and flushed when the tab is hidden.
+
+A failed sync is never surfaced: the bag on screen is correct either way, and
+the next change re-sends everything.
+
+### Sessions
+
+Customer sessions are **rows in `CustomerSession`**, not self-contained tokens
+— which is what makes "sign out" and "sign out everywhere" revoke something
+real. The cookie holds a random opaque token; only its SHA-256 digest is
+stored, so a leaked database dump cannot be replayed as a login. Passwords are
+scrypt from `node:crypto` — memory-hard, no native addon to build, works
+unchanged on a serverless runtime.
+
+The admin's session is still a stateless JWT (`lib/session.ts`), and
+deliberately so: it is one person on one laptop, checked in middleware that
+must not touch a database.
+
+### Deploying to Vercel
+
+The `> [!IMPORTANT]` note above about the JSON content store no longer applies
+once `DATABASE_URL` is set: content moves to the `ContentDocument` table and
+the read-only filesystem stops mattering. **Uploaded images still write to
+`.content/uploads/`** and still need a writable disk — that is the remaining
+piece to move before a Vercel deploy is complete.
+
+If `/admin` has published anything on this machine, carry it across once:
+
+```bash
+npm run content:import
+```
+
+Set the build command to `npm run build` (it runs `prisma generate` first, and
+the generated client is gitignored) and run `npm run db:deploy` as part of
+releasing.
 
 ## Further reading
 

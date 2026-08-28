@@ -37,3 +37,6 @@ next-env.d.ts
 
 # persisted site content (written by /admin)
 /.content/
+
+# generated Prisma client (rebuilt by `npm run build`)
+/lib/generated/

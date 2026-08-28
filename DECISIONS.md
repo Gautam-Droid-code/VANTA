@@ -937,6 +937,140 @@ nothing.
 Phones get a link to `/search` rather than the field, which would crowd out the
 wordmark at that width.
 
+## 24. The database, and customer accounts
+
+Everything before this point ran without one. The catalogue is a JSON document,
+the bag is `localStorage`, and the admin is two environment variables — which is
+why the site has always been deployable as a folder of static-ish pages. That
+stops being enough the moment an order has to exist, so Postgres arrives here,
+before checkout rather than alongside it.
+
+**Prisma 7 with the `@prisma/adapter-pg` driver adapter, against a pooled
+connection.** The pool matters more than the ORM: on a serverless host each
+request can be its own process, and one direct connection per request exhausts
+the database's limit long before real traffic does. `DIRECT_DATABASE_URL` exists
+only for `prisma migrate`, which needs an advisory lock a transaction-mode
+pooler cannot hold.
+
+The generated client is written to `lib/generated/prisma` — outside `app/`,
+because everything under the App Router is scanned for route files — and is
+gitignored. `npm run build` runs `prisma generate` first, so the deploy target
+does not need it committed.
+
+**The database is a capability, not a requirement.** `hasDatabase()` is checked
+rather than assumed: with `DATABASE_URL` unset the storefront behaves exactly as
+it did before, and the account pages say accounts are unavailable instead of
+five hundred different pages throwing. The Prisma client itself is built behind
+a lazy proxy for the same reason — a build that never touches the database does
+not need one to exist.
+
+### Customer sessions are rows; the admin's is still a token
+
+Two auth systems now sit in the same repo, and the difference is deliberate.
+
+The admin session (§17) is a stateless JWT. It is one person on one laptop, and
+it is verified in middleware, which runs on the Edge and must not open a
+database connection. Not being able to revoke it is an acceptable trade for
+that.
+
+A customer session is a stranger's phone. It has to be revocable — "sign out",
+and later "sign out everywhere" after a password change — and revoking is
+exactly what a self-contained token cannot do. So `CustomerSession` is a row,
+the cookie holds a random opaque token with no structure to tamper with, and
+only its SHA-256 digest is stored: a leaked dump contains nothing replayable as
+a login.
+
+Passwords are **scrypt from `node:crypto`**, not bcrypt or argon2. Both of those
+are native addons — a build toolchain on install, a matching binary on the
+deploy target — and neither buys anything scrypt does not already give. The cost
+parameters are written into every stored hash, so raising them later does not
+invalidate existing passwords.
+
+Sign-in hashes a dummy password when no account matches, so "no such email" is
+not measurably faster than "wrong password". That is the same disclosure the
+single shared error message exists to prevent, and fixing one without the other
+fixes neither.
+
+### The bag: localStorage is the authority, the account is a mirror
+
+The obvious design is to move the bag into the database once someone signs in.
+It is wrong. It makes adding an item a network round trip, breaks the bag
+entirely on a flaky connection, and turns every product page dynamic — for a
+feature whose whole appeal is that it is instant.
+
+So the bag stays where it is, and signing in adds a *second* copy.
+`components/AccountSync.tsx` reconciles them once per page load and mirrors
+every change afterwards, debounced, flushed when the tab hides. A failed sync is
+never surfaced: what is on screen is correct either way, and the next change
+re-sends the whole list.
+
+The one moment the server wins is the merge, which is the only moment it knows
+something the browser does not — what this person's other device did. On a
+quantity clash **the larger wins, never the sum.** Adding them is the tempting
+choice: the common case is one person adding the same jacket on a laptop and
+then on a phone, and that person wants one jacket. Doubling someone's order
+because they signed in is a mistake they might only notice after paying.
+
+### The content store's second adapter
+
+§15 said moving off the JSON file meant writing one more `ContentStore` adapter
+and nothing else. `lib/prismaContentStore.ts` is that adapter, and the claim
+held: no route, component or editor changed.
+
+The document is stored whole, in a `Json` column, exactly as the file adapter
+stores it whole in a file. Shredding it into tables would put the schema in two
+places — `data/types.ts` and a migration — and every future field would have to
+be added to both. The retry the file adapter needs against torn reads is
+deliberately absent here; a row is written atomically.
+
+Postgres is selected as soon as `DATABASE_URL` exists, not only when asked for.
+A project with a database configured and the file adapter still running works
+perfectly in development and fails on its first publish in production, which is
+the worst possible time to find out. `CONTENT_STORE_DRIVER` overrides it in both
+directions.
+
+Switching drivers moves nothing — the two stores are separate places — so
+`npm run content:import` carries an existing `.content/site.json` across once.
+Without it the site falls back to the `/data` seed and looks as though every
+edit was lost.
+
+**Uploaded images are the remaining piece.** §15b writes them to
+`.content/uploads/`, which still needs a writable disk. Content and accounts now
+survive a read-only filesystem; images do not.
+
+### `prisma.config.ts` must not need a database to load
+
+Two traps, both of which made the database a requirement rather than a
+capability — the exact thing this section claims it is not.
+
+Prisma's `env()` helper **throws** on a missing variable rather than returning
+undefined, so `env("DIRECT_DATABASE_URL") ?? env("DATABASE_URL")` never reaches
+the fallback: the whole config fails to load. Since `npm run build` runs
+`prisma generate` first, and generating a client needs no database at all, that
+made a database mandatory to build the site. The URLs are read from
+`process.env` instead, and the datasource is omitted entirely when neither is
+set — `generate` succeeds, and the commands that genuinely need a connection
+fail on their own with their own message.
+
+The CLI also does not read `.env.local`; Next does. A `DATABASE_URL` that works
+for the app was invisible to `prisma migrate`, which reported a missing
+variable sitting in a file three lines long. The config loads `.env.local` and
+then `.env`, neither overriding an already-exported shell variable, so a
+one-off migration against a different database still works the way it looks
+like it should.
+
+### Reading the session in the root layout
+
+`app/layout.tsx` is now `async` and calls `getCustomer()`. `cookies()` is a
+request-time API, so this opts every route out of static prerendering.
+
+That is the intended trade rather than an oversight. The storefront wants
+request-time rendering anyway: its catalogue and copy come from a store that
+`/admin` rewrites at runtime, and a page frozen at build time keeps serving
+whatever was published the day it was deployed. Only the boolean crosses into
+the client tree — the customer's name and email stay on the server, where the
+pages that need them read them directly.
+
 ## Known issues / follow-ups
 
 - **The policy pages are placeholder text.** `/returns`, `/shipping`, `/terms`

@@ -10,7 +10,15 @@ import { useScrollProgress } from "@/lib/useScrollProgress";
 import { useBag } from "@/components/BagProvider";
 import { useWishlist } from "@/components/WishlistProvider";
 import { duration, ease, stagger, tapScale } from "@/lib/motion";
-import { BagIcon, CloseIcon, GridIcon, HeartIcon, MenuIcon, SearchIcon } from "@/components/ui/Icons";
+import {
+  BagIcon,
+  CloseIcon,
+  GridIcon,
+  HeartIcon,
+  MenuIcon,
+  SearchIcon,
+  UserIcon,
+} from "@/components/ui/Icons";
 import { cn } from "@/lib/format";
 
 interface NavbarProps {
@@ -143,6 +151,21 @@ export function Navbar({ nav }: NavbarProps) {
               aria-label="Search"
             >
               <SearchIcon className="h-5 w-5" />
+            </Link>
+
+            {/*
+              Account. Always the same link, signed in or out — `/account`
+              redirects a signed-out visitor to the sign-in page and back
+              afterwards. Rendering a different icon or label per state would
+              mean threading the session through every page that renders a
+              Navbar, for a difference nobody is looking at the header to learn.
+            */}
+            <Link
+              href="/account"
+              className="p-2 text-bone transition-opacity duration-200 ease-in-out hover:opacity-70"
+              aria-label="Your account"
+            >
+              <UserIcon className="h-5 w-5" />
             </Link>
 
             {/*

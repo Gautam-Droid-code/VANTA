@@ -12,6 +12,7 @@ import path from "node:path";
 import { homepage as seedHomepage } from "@/data/homepage";
 import { collectionPage as seedCollectionPage } from "@/data/collectionPage";
 import { products as seedProducts } from "@/data/products";
+import { PrismaContentStore } from "@/lib/prismaContentStore";
 import type { CollectionPageContent, HomepageContent, Product } from "@/data/types";
 
 /**
@@ -182,4 +183,32 @@ const STORE_PATH =
 /** Sits beside the published document, never inside it. */
 const DRAFT_PATH = path.join(path.dirname(STORE_PATH), "draft.json");
 
-export const contentStore: ContentStore = new FileContentStore(STORE_PATH, DRAFT_PATH);
+/**
+ * Which adapter runs.
+ *
+ * Postgres as soon as there is a database, because the host that needs a
+ * database is also the host without a writable disk — a project with
+ * DATABASE_URL set and the file adapter still selected would work perfectly in
+ * development and fail on its first publish in production, which is the worst
+ * possible time to find out.
+ *
+ * `CONTENT_STORE_DRIVER` overrides the choice in both directions, for the case
+ * where the database exists for accounts but the content should stay on disk.
+ *
+ * Switching drivers does not move anything: the two stores are separate
+ * places. Run `npm run content:import` once to copy a published `.content`
+ * document into Postgres, or the site falls back to the `/data` seed and looks
+ * as though every edit was lost.
+ */
+function selectStore(): ContentStore {
+  const driver =
+    process.env.CONTENT_STORE_DRIVER ?? (process.env.DATABASE_URL ? "postgres" : "file");
+
+  if (driver === "postgres") {
+    return new PrismaContentStore(withDefaults, seedContent);
+  }
+
+  return new FileContentStore(STORE_PATH, DRAFT_PATH);
+}
+
+export const contentStore: ContentStore = selectStore();

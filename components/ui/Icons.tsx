@@ -48,6 +48,14 @@ export const HeartIcon = (p: IconProps) => (
   </svg>
 );
 
+/** Head and shoulders — the account entry point in the header. */
+export const UserIcon = (p: IconProps) => (
+  <svg {...base} {...p}>
+    <circle cx="12" cy="8" r="3.5" />
+    <path d="M5 20c0-3.6 3.1-5.5 7-5.5s7 1.9 7 5.5" />
+  </svg>
+);
+
 export const HomeIcon = (p: IconProps) => (
   <svg {...base} {...p}>
     <path d="M4 10.5 12 4l8 6.5V20H4v-9.5Z" />

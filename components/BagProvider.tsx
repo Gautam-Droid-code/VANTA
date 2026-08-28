@@ -18,10 +18,11 @@ import { createPersistentStore } from "@/lib/persistentStore";
  * and would quietly bill from a stale number. Everything else is resolved
  * against the live catalogue when the bag is rendered.
  *
- * Guest-only and browser-local. There are no accounts, so there is nobody to
- * attach a server-side bag to, and a cart normally stays on the client until
- * checkout anyway. It also means this keeps working on a read-only host, where
- * the content store does not.
+ * Browser-local, always. Signing in does not move the bag to the server: it
+ * adds a second copy there, reconciled once at sign-in and mirrored on every
+ * change after that (`components/AccountSync.tsx`). localStorage stays the
+ * authority the UI reads, which is what keeps the bag instant, correct while
+ * signed out, and unbothered by a slow or missing network.
  */
 export interface BagLine {
   id: string;
@@ -102,13 +103,19 @@ const clampQty = (qty: number) => Math.max(0, Math.min(MAX_QTY, Math.floor(qty))
  */
 let dropped = 0;
 
-const store = createPersistentStore<BagLine[]>({
+/**
+ * Exported so `components/AccountSync.tsx` can read and replace the bag from
+ * outside React. The store is already the source of truth React subscribes to,
+ * so a write from the sync is indistinguishable from a write from a button —
+ * every mounted consumer re-renders through the same subscription.
+ */
+export const bagStore = createPersistentStore<BagLine[]>({
   key: STORAGE_KEY,
   empty: [],
   parse: parseLines,
 });
 
-const { subscribe, getSnapshot, getServerSnapshot, write } = store;
+const { subscribe, getSnapshot, getServerSnapshot, write } = bagStore;
 
 export function BagProvider({ children }: { children: React.ReactNode }) {
   const lines = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

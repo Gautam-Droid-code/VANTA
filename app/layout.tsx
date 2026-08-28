@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { fontVariables } from "./fonts";
 import { Providers } from "@/components/Providers";
+import { getCustomer } from "@/lib/auth/customerSession";
 import { siteUrl } from "@/lib/siteUrl";
 import "./globals.css";
 
@@ -42,11 +43,26 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/**
+ * Reading the session here makes every route render at request time.
+ *
+ * That is the intended trade, and it is worth being explicit about: `cookies()`
+ * is a request-time API, so touching it in the root layout opts the whole app
+ * out of static prerendering. The storefront wants that anyway — its catalogue
+ * and copy come from a content store that `/admin` rewrites at runtime, and a
+ * page frozen at build time would keep serving whatever was published the day
+ * it was deployed.
+ *
+ * Only the boolean crosses into the client tree. The customer's name and email
+ * stay on the server, where the pages that need them read them directly.
+ */
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const customer = await getCustomer();
+
   return (
     <html lang="en-IN" className={fontVariables}>
       <body>
-        <Providers>{children}</Providers>
+        <Providers signedIn={Boolean(customer)}>{children}</Providers>
       </body>
     </html>
   );
