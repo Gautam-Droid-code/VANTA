@@ -136,6 +136,7 @@ const category = z.object({
   href: nonEmpty,
   image: imageAsset,
   itemCount: z.number().int().nonnegative(),
+  parentId: z.string().optional(),
   // Page-level extras. Optional, and an empty description is meaningful —
   // it means "no intro on this collection page", not an unfinished field.
   description: z.string().optional(),
@@ -198,7 +199,39 @@ return z
     // legitimately reference a product that hasn't been added back yet.
     if (!strict) return;
 
-    const categoryIds = new Set(value.homepage.categories.items.map((c) => c.id));
+    const cats = value.homepage.categories.items;
+    const categoryIds = new Set(cats.map((c) => c.id));
+
+    /**
+     * Groups are one level deep, and a category cannot be its own parent.
+     * Both would otherwise produce a collection page that recurses or renders
+     * a category inside itself.
+     */
+    const hasParent = new Set(cats.flatMap((c) => (c.parentId ? [c.id] : [])));
+    cats.forEach((c, i) => {
+      if (!c.parentId) return;
+      const at = ["homepage", "categories", "items", i, "parentId"];
+      if (c.parentId === c.id) {
+        ctx.addIssue({ code: "custom", path: at, message: `"${c.name}" cannot be its own group.` });
+        return;
+      }
+      if (!categoryIds.has(c.parentId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: at,
+          message: `"${c.name}" is in group "${c.parentId}", which doesn't exist.`,
+        });
+        return;
+      }
+      if (hasParent.has(c.parentId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: at,
+          message: `"${c.name}" is inside a category that is itself in a group. Only one level is supported.`,
+        });
+      }
+    });
+
     value.products.forEach((p, i) => {
       if (!categoryIds.has(p.categoryId)) {
         ctx.addIssue({

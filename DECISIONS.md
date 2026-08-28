@@ -868,6 +868,37 @@ says "calculated at checkout" rather than promising free shipping there is no
 rule for. A control that looks live and goes nowhere is worst at the exact
 moment someone has decided to buy.
 
+## 22. Category groups
+
+"Clothing" and "Accessories" are not categories a product can be in — they are
+what a category is part of. A jacket is both a jacket and clothing, so making
+Clothing a sibling would have forced products to pick one, and picking
+"Clothing" would have thrown away the fact that it is a jacket.
+
+`Category.parentId` models it instead. A group's collection page shows
+everything in its children; its own `itemCount` is ignored because the page
+counts the catalogue itself.
+
+**One level, enforced.** Publishing refuses a category whose parent is itself
+inside a group, and refuses a category that is its own parent. The admin's
+group selector only offers top-level categories, so the invalid shape is not
+expressible through the UI either. Deeper nesting is a menu nobody navigates
+well, and every layout here would need a recursive case for a depth that never
+occurs.
+
+**Groups do not appear in the homepage rows or the collections index.** Those
+list categories a product can actually be in; a Clothing row would open a page
+showing the same garments as the four rows beneath it. `leafCategories()` is
+the single definition of "a category, not a group".
+
+**The rail shows the hierarchy by indenting**, from a flat list carrying a
+`nested` flag rather than a tree — the rail only ever draws one level, and a
+tree would make every consumer handle a depth that cannot occur.
+
+This also resolved two of the three dead nav links: `/collections/clothing` and
+`/collections/accessories` now exist. `/collections/series-026` does not — that
+one is a drop, not a category, and is still a broken link in the lookbook.
+
 ## Known issues / follow-ups
 
 - **Product imagery is doubled up.** There are only 5 photos in the Stitch
@@ -919,9 +950,9 @@ moment someone has decided to buy.
   `href`s in the content resolve, up from 1. Still missing: `/bag` and
   `/wishlist` (no cart yet), the footer's `/privacy`, `/returns`, `/shipping`
   and `/terms`, and three nav links pointing at categories that do not exist —
-  `/collections/clothing`, `/collections/accessories`, `/collections/series-026`.
-  Those three are content, not code: either add the categories or repoint the
-  links in `/admin`.
+  `/collections/series-026`.
+  `/collections/series-026` is the remaining one: it is a drop rather than a
+  category, so it needs either a category, a tag, or a repointed link.
 - **Search is decorative.** The navbar search button has no handler; it is an
   icon with an `aria-label` and nothing behind it.
 - **No checkout.** The bag and wishlist work, but the checkout control is

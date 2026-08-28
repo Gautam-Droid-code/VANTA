@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import type { Category } from "@/data/types";
 import { ImagePicker } from "./ImagePicker";
-import { Button, Field, TextArea, TextInput, Toggle } from "./ui";
+import { Button, Field, Select, TextArea, TextInput, Toggle } from "./ui";
+import { useDraft } from "./AdminDraftProvider";
 import { CloseIcon } from "./AdminIcons";
 import { slugify } from "./ProductDrawer";
 
@@ -29,6 +30,16 @@ export function CategoryDrawer({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Category>(category);
+  const { content } = useDraft();
+
+  /**
+   * Categories that can be a group for this one: anything that is not itself
+   * inside a group, and not this category. Offering the rest would let someone
+   * build the two-level nesting the schema refuses at publish.
+   */
+  const groupOptions = content.categories.items.filter(
+    (c) => c.id !== draft.id && !c.parentId,
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -89,6 +100,27 @@ export function CategoryDrawer({
             hint="Created automatically from the category name."
           >
             <TextInput id="c-id" value={draft.id} disabled />
+          </Field>
+
+          {/* Groups hold no products of their own; their page shows whatever
+              is in their children. */}
+          <Field
+            label="Group"
+            htmlFor="c-parent"
+            hint="Optional. Puts this category inside a wider one, like Clothing. Its products still appear on the group's page."
+          >
+            <Select
+              id="c-parent"
+              value={draft.parentId ?? ""}
+              onChange={(e) => patch({ parentId: e.target.value || undefined })}
+            >
+              <option value="">No group — top level</option>
+              {groupOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
           </Field>
 
           <Field

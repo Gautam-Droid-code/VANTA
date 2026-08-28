@@ -123,6 +123,19 @@ export interface Category {
   image: ImageAsset;
   itemCount: number;
   /**
+   * The group this category sits inside, by `Category.id`.
+   *
+   * "Clothing" and "Accessories" are not things a product is instead of being
+   * a jacket — they are what a jacket is part of. Modelling them as sibling
+   * categories would force a product to choose one, so they are parents, and
+   * a parent's collection page shows everything in its children.
+   *
+   * One level only: a category with a `parentId` may not itself be a parent.
+   * Deeper nesting is a menu design nobody navigates well, and every layout
+   * here would have to grow a recursive case to support it.
+   */
+  parentId?: string;
+  /**
    * Page-level content for this category's own collection page.
    *
    * Both optional: a collection page is complete without them, and the page

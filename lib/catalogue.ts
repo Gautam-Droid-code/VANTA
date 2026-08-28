@@ -35,6 +35,17 @@ type ViewSlug = keyof typeof VIEWS;
 
 const isView = (slug: string): slug is ViewSlug => slug in VIEWS;
 
+/** The categories a product can actually be in — a group holds none itself. */
+export function leafCategories(all: Category[]): Category[] {
+  const parentIds = new Set(all.flatMap((c) => (c.parentId ? [c.parentId] : [])));
+  return all.filter((c) => !parentIds.has(c.id));
+}
+
+/** A group's own id plus its children's, for matching products. */
+function idsUnder(category: Category, all: Category[]): Set<string> {
+  return new Set([category.id, ...all.filter((c) => c.parentId === category.id).map((c) => c.id)]);
+}
+
 export async function getCollection(slug: string): Promise<Collection | null> {
   const { homepage, collectionPage, products } = await contentStore.read();
 
@@ -56,7 +67,13 @@ export async function getCollection(slug: string): Promise<Collection | null> {
   const category = homepage.categories.items.find((c) => c.id === slug);
   if (!category) return null;
 
-  return { category, products: products.filter((p) => p.categoryId === category.id) };
+  /**
+   * A group shows everything in its children. `idsUnder` includes the group's
+   * own id as well, so a product assigned directly to a group — which the
+   * admin allows, even if it is unusual — is not silently invisible.
+   */
+  const ids = idsUnder(category, homepage.categories.items);
+  return { category, products: products.filter((p) => ids.has(p.categoryId)) };
 }
 
 export async function getAllCollections(): Promise<Category[]> {
@@ -69,6 +86,8 @@ export interface CollectionLink {
   name: string;
   href: string;
   count: number;
+  /** True for a group's children, so the rail can indent them. */
+  nested?: boolean;
 }
 
 /**
@@ -93,17 +112,37 @@ export async function getCollectionLinks(): Promise<CollectionLink[]> {
     count: VIEWS[slug].select(products).length,
   });
 
-  return [
-    view("new"),
-    ...homepage.categories.items.map((c) => ({
-      slug: c.id,
-      name: c.name,
-      href: c.href,
-      count: products.filter((p) => p.categoryId === c.id).length,
-    })),
-    view("sale"),
-    view("all"),
-  ];
+  const all = homepage.categories.items;
+  const countFor = (c: Category) => {
+    const ids = idsUnder(c, all);
+    return products.filter((p) => ids.has(p.categoryId)).length;
+  };
+
+  /**
+   * Groups first, each followed by its own children. Flat list with a `nested`
+   * flag rather than a tree: the rail only ever draws one level, and a tree
+   * would make every consumer handle a depth that cannot occur.
+   */
+  const grouped = all
+    .filter((c) => !c.parentId)
+    .flatMap((parent) => {
+      const children = all.filter((c) => c.parentId === parent.id);
+      const self = { slug: parent.id, name: parent.name, href: parent.href, count: countFor(parent) };
+      // A category with no children is not a group; it stands alone.
+      if (children.length === 0) return [self];
+      return [
+        self,
+        ...children.map((c) => ({
+          slug: c.id,
+          name: c.name,
+          href: c.href,
+          count: countFor(c),
+          nested: true,
+        })),
+      ];
+    });
+
+  return [view("new"), ...grouped, view("sale"), view("all")];
 }
 
 export async function getProduct(slug: string): Promise<Product | null> {

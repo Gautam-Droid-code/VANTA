@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { contentStore } from "@/lib/contentStore";
+import { leafCategories } from "@/lib/catalogue";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
@@ -36,7 +37,7 @@ export default async function CollectionsPage() {
           ) : null}
         </header>
 
-        <CategoryList heading="" items={homepage.categories.items} />
+        <CategoryList heading="" items={leafCategories(homepage.categories.items)} />
       </main>
 
       <Footer content={homepage.footer} />

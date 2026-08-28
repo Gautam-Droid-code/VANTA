@@ -36,6 +36,9 @@ export function CollectionNav({
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex items-baseline justify-between gap-3 py-1.5 text-sm transition-colors duration-200",
+                  // Children sit in from their group, so the hierarchy is
+                  // readable without a second heading or a divider.
+                  link.nested && "pl-3",
                   active ? "font-medium text-bone" : "text-bone/50 hover:text-bone",
                 )}
               >

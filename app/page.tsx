@@ -1,4 +1,5 @@
 import { contentStore } from "@/lib/contentStore";
+import { leafCategories } from "@/lib/catalogue";
 import { Navbar } from "@/components/Navbar";
 import { Hero } from "@/components/Hero";
 import { Lookbook } from "@/components/Lookbook";
@@ -90,9 +91,12 @@ export default async function HomePage() {
         <TrustStrip items={homepage.trust.items} />
 
         <div id="chapter-categories">
+          {/* Leaves only. A group holds no products of its own, so a row for
+              it would open a page listing the same garments as the rows
+              beneath it. */}
           <CategoryList
             heading={homepage.categories.heading}
-            items={homepage.categories.items}
+            items={leafCategories(homepage.categories.items)}
           />
         </div>
       </main>
