@@ -8,8 +8,9 @@ import type { NavContent } from "@/data/types";
 import { useScrolled } from "@/lib/useScrolled";
 import { useScrollProgress } from "@/lib/useScrollProgress";
 import { useBag } from "@/components/BagProvider";
+import { useWishlist } from "@/components/WishlistProvider";
 import { duration, ease, stagger, tapScale } from "@/lib/motion";
-import { BagIcon, CloseIcon, GridIcon, MenuIcon, SearchIcon } from "@/components/ui/Icons";
+import { BagIcon, CloseIcon, GridIcon, HeartIcon, MenuIcon, SearchIcon } from "@/components/ui/Icons";
 import { cn } from "@/lib/format";
 
 interface NavbarProps {
@@ -22,6 +23,7 @@ export function Navbar({ nav }: NavbarProps) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const { count, hydrated } = useBag();
+  const { count: savedCount, hydrated: wishlistHydrated } = useWishlist();
 
   /**
    * A link is current if the path matches it, or sits beneath it — so
@@ -118,6 +120,30 @@ export function Navbar({ nav }: NavbarProps) {
             >
               <SearchIcon className="h-5 w-5" />
             </motion.button>
+
+            {/*
+              The wishlist had no reachable link above `md`: the only one was
+              in the bottom nav, which is hidden on desktop. Items could be
+              saved and never seen again.
+            */}
+            <Link
+              href="/wishlist"
+              className="relative p-2 text-bone transition-opacity duration-200 ease-in-out hover:opacity-70"
+              aria-label={`Wishlist, ${wishlistHydrated ? savedCount : 0} ${
+                (wishlistHydrated ? savedCount : 0) === 1 ? "item" : "items"
+              }`}
+            >
+              <HeartIcon className="h-5 w-5" />
+              {wishlistHydrated && savedCount > 0 && (
+                <span
+                  key={savedCount}
+                  aria-hidden
+                  className="absolute right-0 top-0 flex h-4 min-w-4 animate-badge-pop items-center justify-center rounded-full bg-flare-red px-1 text-[10px] font-bold leading-none text-bone"
+                >
+                  {savedCount > 9 ? "9+" : savedCount}
+                </span>
+              )}
+            </Link>
 
             <Link
               href="/bag"
