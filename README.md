@@ -34,6 +34,7 @@ cp .env.local.example .env.local
 | `ADMIN_USERNAME` | Username for signing in at `/admin/login` |
 | `ADMIN_PASSWORD` | Password for signing in. Use something long and random. |
 | `ADMIN_SESSION_SECRET` | Signs the admin session cookie. **Must be ≥32 characters** — the app throws on startup if it isn't. |
+| `NEXT_PUBLIC_SITE_URL` | The site's public address, used to build share-preview links. Optional in development and on Vercel; **required elsewhere before launch**, or WhatsApp and search previews point at the wrong host. No trailing slash. |
 
 Generate a session secret with:
 
