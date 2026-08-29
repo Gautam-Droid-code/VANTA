@@ -40,11 +40,29 @@ function siteHost() {
  * supports `'strict-dynamic'`, so tightening this later is a change to this
  * file plus a nonce in middleware, not a redesign.
  */
+/**
+ * Development needs two relaxations, and neither reaches production.
+ *
+ * React's development build uses `eval()` to reconstruct stack traces across
+ * environments, so a CSP without `'unsafe-eval'` breaks `next dev` outright —
+ * observed as "eval() is not supported in this environment" and a page that
+ * will not hydrate. React never uses eval in production, so the allowance is
+ * gated rather than global.
+ *
+ * `upgrade-insecure-requests` rewrites every http:// request to https://.
+ * Locally the dev server speaks plain HTTP, so shipping it in development
+ * turns every same-origin fetch into ERR_SSL_PROTOCOL_ERROR — also observed,
+ * rather than reasoned about. It belongs only where there is TLS to upgrade to.
+ */
+const isDev = process.env.NODE_ENV === "development";
+
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://challenges.cloudflare.com`,
   "frame-src 'self' https://challenges.cloudflare.com",
-  "connect-src 'self' https://challenges.cloudflare.com",
+  // `ws:` for the dev server's hot-reload socket, which is same-origin but not
+  // http(s) — `connect-src 'self'` alone does not cover a WebSocket scheme.
+  `connect-src 'self' https://challenges.cloudflare.com${isDev ? " ws: wss:" : ""}`,
   // Tailwind and next/font both emit inline styles; there is no nonce-free
   // alternative, and injected CSS is a far smaller problem than injected JS.
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
@@ -55,7 +73,7 @@ const CSP = [
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  "upgrade-insecure-requests",
+  ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");
 
 const SECURITY_HEADERS = [

@@ -114,19 +114,29 @@ class FileContentStore implements ContentStore {
 
   async read(): Promise<SiteContent> {
     /**
-     * Retried once on a parse failure.
+     * Retried, with a short backoff, on a parse failure.
      *
-     * A read that lands mid-write returns a truncated document, and a single
-     * bad read would otherwise 500 every storefront page at once. Writes go
-     * temp-file-then-rename precisely so this cannot happen, but it has been
-     * observed under concurrent first-requests in dev, and the cost of being
-     * wrong is the whole site.
+     * A truncated read parses as a SyntaxError, and one bad read would 500
+     * every storefront page at once. Writes are temp-file-then-rename, and
+     * rename is atomic, so a reader should never see a partial document — this
+     * is insurance against the case where that reasoning is wrong, not a fix
+     * for an observed fault.
      *
-     * One retry, not a loop: a genuinely corrupt file must still surface
-     * rather than be masked by retrying forever. Falling back to the seed
-     * would be worse than failing — it would serve the original copy and
-     * prices as though nothing had ever been published.
+     * Worth recording, because it was originally added for the wrong reason:
+     * "Unexpected end of JSON input" appears on `next dev` when several routes
+     * compile at once on a cold start, and it looked exactly like a torn read
+     * of this file. It is not. Instrumenting every read showed all 33 of them
+     * returning the full document while a page still 500'd, and the same
+     * concurrent requests against a production build never fail. It is
+     * Turbopack parsing its own dev manifests, and nothing here can fix it.
+     *
+     * Bounded, not a loop: a genuinely corrupt file must still surface rather
+     * than be masked by retrying forever. It does not fall back to the seed —
+     * that would serve the original copy and prices as though nothing had ever
+     * been published.
      */
+    const RETRY_DELAYS_MS = [25, 75];
+
     for (let attempt = 0; ; attempt++) {
       try {
         const raw = await readFile(this.file, "utf8");
@@ -134,7 +144,10 @@ class FileContentStore implements ContentStore {
       } catch (error) {
         // First run: nothing written yet, so `/data` is the published state.
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return seedContent();
-        if (attempt === 0 && error instanceof SyntaxError) continue;
+        if (attempt < RETRY_DELAYS_MS.length && error instanceof SyntaxError) {
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+          continue;
+        }
         throw error;
       }
     }
