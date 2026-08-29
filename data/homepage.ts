@@ -26,6 +26,8 @@ export const homepage: HomepageContent = {
      * back to check.
      */
     links: [
+      // Broadest first: everything, then what's new, then what's reduced.
+      { label: "All Products", href: "/products" },
       { label: "New Drops", href: "/collections/new" },
       { label: "Sale", href: "/collections/sale" },
     ],
