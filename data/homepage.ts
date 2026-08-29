@@ -101,7 +101,16 @@ export const homepage: HomepageContent = {
     headline: [[{ text: "OWN YOUR" }], [{ text: "DIRECTION." }]],
     description:
       "Precision tailoring meets relentless durability. Garments designed not just to be worn, but to perform seamlessly in every environment.",
-    cta: { label: "Shop Series 026", href: "/collections/series-026" },
+    /**
+     * Points at the Series 026 piece itself, not `/collections/series-026`,
+     * which never existed — the button was a 404 on the homepage.
+     *
+     * "Series 026" is a drop rather than a category, and nothing in the
+     * catalogue is grouped by it, so there is no collection to send anyone to.
+     * If it becomes a real range, make it a category in /admin and repoint
+     * this — the button is editable content and needs no code change.
+     */
+    cta: { label: "Shop Series 026", href: "/products/series-026-field-parka" },
     image: {
       src: "/images/model-02.webp",
       alt: "Model wearing the Series 026 field parka against a burnt orange gradient",
