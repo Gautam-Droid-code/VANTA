@@ -115,6 +115,9 @@ const product = z.object({
   href: nonEmpty,
   codAvailable: z.boolean(),
   badge: z.string().optional(),
+  // Written by the server, never by a form, so this only has to be a valid
+  // date string — an editor cannot put anything else here.
+  badgeSetAt: z.iso.datetime().optional(),
 }) satisfies z.ZodType<Product>;
 
 const productRail = z.object({

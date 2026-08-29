@@ -98,6 +98,20 @@ export interface Product {
   codAvailable: boolean;
   /** Small corner flag, e.g. "NEW" / "LOW STOCK". Omit for none. */
   badge?: string;
+  /**
+   * When the current badge was applied, as an ISO date string.
+   *
+   * Exists so the admin can point out a badge that has gone stale — a product
+   * marked NEW in January is still in New Drops in June, because nothing
+   * expires it. Without a date there is no way to ask "how long has this been
+   * new", and the reminder could not exist at all.
+   *
+   * Stamped by the publish action rather than typed by an editor: a date
+   * someone has to remember to set is a date that is wrong. Optional because
+   * products badged before this field existed have no answer, and inventing
+   * one would mean flagging them all on the day it shipped.
+   */
+  badgeSetAt?: string;
 }
 
 export interface ProductRailContent {

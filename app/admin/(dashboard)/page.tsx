@@ -6,6 +6,7 @@ import { backdropClass } from "@/lib/backdrops";
 import { useDraft } from "@/components/admin/AdminDraftProvider";
 import { Button, Card, Pill } from "@/components/admin/ui";
 import { ExternalIcon, ChevronIcon } from "@/components/admin/AdminIcons";
+import { StaleBadgeNotice } from "@/components/admin/StaleBadgeNotice";
 
 export default function AdminOverviewPage() {
   const { products, content, isDirty, dirtySections, lastEditedAt, publish, discard } = useDraft();
@@ -38,6 +39,11 @@ export default function AdminOverviewPage() {
           you publish them.
         </p>
       </header>
+
+      {/* Only appears when something has actually gone stale. */}
+      <div className="mb-6 empty:mb-0">
+        <StaleBadgeNotice />
+      </div>
 
       {/* Unsaved changes call-to-action */}
       {isDirty ? (

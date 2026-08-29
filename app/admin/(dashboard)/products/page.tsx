@@ -8,6 +8,7 @@ import { formatINR } from "@/lib/format";
 import { useDraft } from "@/components/admin/AdminDraftProvider";
 import { ProductDrawer, blankProduct } from "@/components/admin/ProductDrawer";
 import { Button, Card, Pill } from "@/components/admin/ui";
+import { STALE_BADGE_DAYS, badgeAgeInDays } from "@/lib/staleBadges";
 
 export default function AdminProductsPage() {
   const { products, upsertProduct, removeProduct } = useDraft();
@@ -85,7 +86,26 @@ export default function AdminProductsPage() {
                   )}
                 </td>
                 <td className="px-5 py-3">
-                  {p.badge ? <Pill tone="accent">{p.badge}</Pill> : <span className="text-xs text-admin-subtle">—</span>}
+                  {p.badge ? (
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <Pill tone="accent">{p.badge}</Pill>
+                      {/* Shown beside the badge, where it is changed — the
+                          overview says how many, this says which. */}
+                      {(() => {
+                        const days = badgeAgeInDays(p);
+                        return days !== null && days >= STALE_BADGE_DAYS ? (
+                          <span
+                            title={`Marked NEW ${days} days ago. It still shows in New Drops.`}
+                            className="text-[10px] font-semibold uppercase tracking-wider text-admin-accent"
+                          >
+                            {days}d
+                          </span>
+                        ) : null;
+                      })()}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-admin-subtle">—</span>
+                  )}
                 </td>
                 <td className="px-5 py-3">
                   {/* Both COD states are meaningful, so both get a pill. The

@@ -7,6 +7,7 @@ import { mediaStore, type MediaItem } from "@/lib/mediaStore";
 import { processUpload } from "@/lib/processUpload";
 import { getAdmin } from "@/lib/adminSession";
 import { recordAudit } from "@/lib/auditLog";
+import { stampBadgeDates } from "@/lib/staleBadges";
 
 /**
  * Shared by every action here: no valid session, no work.
@@ -62,7 +63,23 @@ export async function publishContent(payload: unknown): Promise<PublishResult> {
   }
 
   try {
-    await contentStore.write(parsed.data as SiteContent);
+    /**
+     * Date the badges before writing.
+     *
+     * Compared against what is currently published, so an unchanged badge
+     * keeps its original date — otherwise every publish would reset the clock
+     * and nothing could ever be reported as stale.
+     */
+    const current = await contentStore.read();
+    const next: SiteContent = {
+      ...(parsed.data as SiteContent),
+      products: stampBadgeDates(
+        (parsed.data as SiteContent).products,
+        current.products,
+      ),
+    };
+
+    await contentStore.write(next);
     // The draft has become the published content, so it is no longer pending.
     // Leaving it would make the admin reopen with a "you have unsaved changes"
     // banner describing work that is already live.
