@@ -9,6 +9,7 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { AddressBook } from "@/components/account/AddressBook";
+import { OrderHistory } from "@/components/account/OrderHistory";
 import { signOutAction } from "./actions";
 
 export const metadata: Metadata = {
@@ -23,11 +24,26 @@ export const metadata: Metadata = {
  * The two are different pages with different metadata and different intent, and
  * a URL that means either one depending on a cookie is a URL nobody can link to.
  */
+/**
+ * Never prerendered, and never cached.
+ *
+ * This page is per-customer by definition. It became static in a build because
+ * nothing in it reached `cookies()`: `getCustomer()` returns early when no
+ * database is configured, so the request-time API that would have marked the
+ * route dynamic was never called, and Next prerendered a page whose whole
+ * purpose is to differ per person.
+ *
+ * Relying on a function's internals to opt a route out of prerendering is the
+ * kind of coupling that breaks quietly — as it already did here. Stated
+ * explicitly instead.
+ */
+export const dynamic = "force-dynamic";
+
 export default async function AccountPage() {
   const customer = await getCustomer();
   if (!customer) redirect("/account/login?next=/account");
 
-  const [{ homepage }, addresses, saved] = await Promise.all([
+  const [{ homepage }, addresses, saved, orderRows] = await Promise.all([
     contentStore.read(),
     prisma.address.findMany({
       where: { customerId: customer.id },
@@ -46,9 +62,33 @@ export default async function AccountPage() {
       },
     }),
     readCustomerData(customer.id),
+    /**
+     * Only what the list needs. Pulling every line of every order to show a
+     * count would grow with the customer's history for no visible gain.
+     */
+    prisma.order.findMany({
+      where: { customerId: customer.id },
+      orderBy: { placedAt: "desc" },
+      take: 50,
+      select: {
+        orderNumber: true,
+        placedAt: true,
+        status: true,
+        total: true,
+        _count: { select: { items: true } },
+      },
+    }),
   ]);
 
   const bagCount = saved.bag.reduce((total, line) => total + line.qty, 0);
+
+  const orders = orderRows.map((row) => ({
+    orderNumber: row.orderNumber,
+    placedAt: row.placedAt,
+    status: row.status,
+    total: row.total,
+    itemCount: row._count.items,
+  }));
 
   return (
     <div className="storefront-shell">
@@ -82,10 +122,9 @@ export default async function AccountPage() {
 
           <section>
             <h2 className="headline text-2xl">Orders</h2>
-            <p className="mt-3 max-w-prose text-sm text-bone/50">
-              Nothing here yet — checkout is the next thing being built. Orders
-              and delivery tracking will appear on this page.
-            </p>
+            <div className="mt-4">
+              <OrderHistory orders={orders} />
+            </div>
           </section>
 
           <hr className="my-10 border-ink-line" />

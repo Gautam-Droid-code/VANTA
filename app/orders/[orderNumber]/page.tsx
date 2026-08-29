@@ -1,0 +1,213 @@
+import type { Metadata } from "next";
+import Image from "next/image";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { contentStore } from "@/lib/contentStore";
+import { hasDatabase, prisma } from "@/lib/db";
+import { getCustomer } from "@/lib/auth/customerSession";
+import { verifyOrderToken } from "@/lib/orders";
+import { formatPaise } from "@/lib/money";
+import { Navbar } from "@/components/Navbar";
+import { Footer } from "@/components/Footer";
+import { BottomNav } from "@/components/BottomNav";
+import { OrderPlaced } from "@/components/OrderPlaced";
+
+export const metadata: Metadata = {
+  // Someone's address and what they bought. Never indexed, never followed.
+  robots: { index: false, follow: false },
+  title: "Your order — VANTA",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  PENDING_PAYMENT: "Awaiting payment",
+  CONFIRMED: "Confirmed",
+  PACKED: "Packed",
+  SHIPPED: "Shipped",
+  DELIVERED: "Delivered",
+  CANCELLED: "Cancelled",
+  REFUNDED: "Refunded",
+};
+
+/**
+ * One order.
+ *
+ * Two ways in, and both are checked here rather than assumed:
+ *
+ * - The **owning customer**, established from the session. An order belonging
+ *   to somebody else is `notFound`, not "forbidden" — telling a stranger that
+ *   order VNT-2026-00041 exists but is not theirs confirms it exists.
+ * - A **guest**, via `?t=` — an HMAC of the order number. Order numbers are
+ *   sequential, so without a token, guessing the next one would hand over the
+ *   previous customer's name, phone and address.
+ *
+ * Everything rendered comes from the order's own snapshot, never from the
+ * catalogue. A product renamed, repriced or deleted since must not change what
+ * this page says was bought.
+ */
+/**
+ * Per-customer, so never prerendered. Stated rather than inferred: this page
+ * built as static because `getCustomer()` returns before touching `cookies()`
+ * when no database is configured, so nothing marked it dynamic. DECISIONS §26.
+ */
+export const dynamic = "force-dynamic";
+
+export default async function OrderPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ orderNumber: string }>;
+  searchParams: Promise<{ t?: string; placed?: string }>;
+}) {
+  const [{ orderNumber }, query] = await Promise.all([params, searchParams]);
+
+  if (!hasDatabase()) notFound();
+
+  const [customer, { homepage }] = await Promise.all([getCustomer(), contentStore.read()]);
+
+  const order = await prisma.order.findUnique({
+    where: { orderNumber },
+    include: { items: { orderBy: { title: "asc" } } },
+  });
+
+  if (!order) notFound();
+
+  const ownsIt = Boolean(customer && order.customerId === customer.id);
+  const hasValidToken = verifyOrderToken(orderNumber, query.t);
+  if (!ownsIt && !hasValidToken) notFound();
+
+  return (
+    <div className="storefront-shell">
+      <Navbar nav={homepage.nav} />
+
+      {/*
+        Only when arriving straight from checkout. A customer opening this from
+        an email weeks later must not have their current bag emptied.
+      */}
+      {query.placed === "1" && <OrderPlaced orderNumber={order.orderNumber} />}
+
+      <main id="main" className="pt-[calc(var(--header-h)+2rem)]">
+        <div className="mx-auto max-w-3xl px-gutter pb-24 lg:px-gutter-lg">
+          <p className="eyebrow">Order {order.orderNumber}</p>
+          <h1 className="headline mt-2 text-display-sm">
+            {order.status === "PENDING_PAYMENT" ? "Order saved" : "Thank you"}
+          </h1>
+
+          <p className="mt-3 max-w-prose text-base leading-relaxed text-bone/60">
+            {order.status === "PENDING_PAYMENT"
+              ? "Online payment isn’t connected yet, so nothing has been charged. Your order is held and we’ll be in touch."
+              : `We’ve got your order. Keep this page — order confirmation emails aren’t set up yet, so this is your record.`}
+          </p>
+
+          <dl className="mt-8 grid gap-4 border-y border-ink-line py-5 sm:grid-cols-3">
+            <div>
+              <dt className="eyebrow">Status</dt>
+              <dd className="mt-1 text-sm text-bone">
+                {STATUS_LABELS[order.status] ?? order.status}
+              </dd>
+            </div>
+            <div>
+              <dt className="eyebrow">Placed</dt>
+              <dd className="mt-1 text-sm text-bone">
+                {order.placedAt.toLocaleDateString("en-IN", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </dd>
+            </div>
+            <div>
+              <dt className="eyebrow">Payment</dt>
+              <dd className="mt-1 text-sm text-bone">
+                {order.paymentMethod === "COD" ? "Cash on delivery" : "Online"}
+              </dd>
+            </div>
+          </dl>
+
+          <section className="mt-8">
+            <h2 className="eyebrow">Items</h2>
+            <ul className="mt-4 divide-y divide-ink-line border-y border-ink-line">
+              {order.items.map((item) => (
+                <li key={item.id} className="flex gap-4 py-4">
+                  <div className="relative aspect-[3/4] w-16 shrink-0 overflow-hidden bg-ink-raised">
+                    {/* The image the customer saw, snapshotted with the line. */}
+                    <Image
+                      src={item.imageSrc}
+                      alt={item.imageAlt}
+                      fill
+                      sizes="64px"
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-bone">{item.title}</p>
+                    <p className="mt-1 text-xs text-bone/40">
+                      {formatPaise(item.unitPrice)} &times; {item.quantity}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-sm tabular-nums text-bone">
+                    {formatPaise(item.lineTotal)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+
+            <dl className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-bone/60">Subtotal</dt>
+                <dd className="tabular-nums text-bone">{formatPaise(order.subtotal)}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-bone/60">Delivery</dt>
+                <dd className="tabular-nums text-bone/60">
+                  {order.shipping === 0 ? "—" : formatPaise(order.shipping)}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-4 border-t border-ink-line pt-3">
+                <dt className="text-label font-bold uppercase text-bone">Total</dt>
+                <dd className="text-lg tabular-nums text-bone">{formatPaise(order.total)}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="mt-8">
+            <h2 className="eyebrow">Delivering to</h2>
+            <address className="mt-3 text-sm not-italic leading-relaxed text-bone/70">
+              <span className="block text-bone">{order.shipName}</span>
+              {order.shipLine1}
+              {order.shipLine2 ? `, ${order.shipLine2}` : ""}
+              <br />
+              {order.shipCity}, {order.shipState} {order.shipPincode}
+              <br />
+              <span className="text-bone/40">{order.shipPhone}</span>
+            </address>
+            {order.note && (
+              <p className="mt-3 max-w-prose whitespace-pre-line text-sm text-bone/50">
+                {order.note}
+              </p>
+            )}
+          </section>
+
+          <div className="mt-10 flex flex-wrap gap-4">
+            <Link
+              href="/products"
+              className="text-label font-bold uppercase text-bone underline underline-offset-4 transition-opacity hover:opacity-70"
+            >
+              Keep shopping
+            </Link>
+            {ownsIt && (
+              <Link
+                href="/account"
+                className="text-label font-bold uppercase text-bone/50 underline underline-offset-4 transition-colors hover:text-bone"
+              >
+                All orders
+              </Link>
+            )}
+          </div>
+        </div>
+      </main>
+
+      <Footer content={homepage.footer} />
+      <BottomNav items={homepage.nav.bottomNav} />
+    </div>
+  );
+}

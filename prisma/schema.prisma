@@ -44,6 +44,7 @@ model Customer {
   addresses Address[]
   bagLines  BagLine[]
   wishlist  WishlistItem[]
+  orders    Order[]
 
   @@index([createdAt])
 }
@@ -240,4 +241,140 @@ model AdminAuditLog {
   @@index([at])
   @@index([actor])
   @@index([action])
+}
+
+/// Where an order is in its life.
+///
+/// A small closed set rather than a free string, because every one of these is
+/// branched on somewhere — a cancelled order must not ship, a pending-payment
+/// order must not be picked. A typo in a string column would be a state nothing
+/// handles and nothing rejects.
+enum OrderStatus {
+  /// ONLINE payment selected, nothing captured yet. The seam where a payment
+  /// provider will slot in; nothing downstream should treat these as sold.
+  PENDING_PAYMENT
+  /// COD placed, or payment captured. The shop owes the customer goods.
+  CONFIRMED
+  PACKED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  COD
+  ONLINE
+}
+
+/// A placed order.
+///
+/// Everything money-related is an Int of paise, never a float. 0.1 + 0.2 is not
+/// 0.3 in binary floating point, and a rounding error in a currency column is
+/// the kind of bug that is only found by a customer reading their invoice.
+/// Rupees are reconstructed for display, once, at the edge.
+model Order {
+  id String @id @default(cuid())
+
+  /// The number a human quotes on the phone — VNT-2026-00042.
+  ///
+  /// Separate from the cuid because a cuid is unreadable aloud and leaks
+  /// nothing useful, while this is short, sequential within a year, and
+  /// obviously an order. The cuid stays the primary key: order numbers are
+  /// generated under contention and a collision must fail a unique check, not
+  /// corrupt a relation.
+  orderNumber String @unique
+
+  /// Null for a guest. Not a required relation: most first orders are placed
+  /// before anyone makes an account, and forcing registration at checkout is
+  /// the single most reliable way to lose the sale.
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  /// Always captured, account or not — it is how the order is confirmed and
+  /// how a guest is found again.
+  email String
+
+  status        OrderStatus   @default(PENDING_PAYMENT)
+  paymentMethod PaymentMethod
+
+  /// The delivery address, copied rather than referenced.
+  ///
+  /// An Address row can be edited or deleted after the fact; an order must
+  /// still say where it actually went. Pointing at the row would rewrite
+  /// history the moment someone corrected a typo in their address book.
+  shipName    String
+  shipPhone   String
+  shipLine1   String
+  shipLine2   String?
+  shipCity    String
+  shipState   String
+  shipPincode String
+  shipCountry String @default("IN")
+
+  /// All in paise. `subtotal` is the sum of the lines; the rest are zero until
+  /// shipping and discounts exist, and are present now so adding them later is
+  /// a value change rather than a migration on a table with orders in it.
+  subtotal Int
+  shipping Int @default(0)
+  discount Int @default(0)
+  total    Int
+
+  /// Free-text note from the customer at checkout.
+  note String?
+
+  placedAt  DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  items OrderItem[]
+
+  @@index([customerId])
+  @@index([email])
+  @@index([placedAt])
+  @@index([status])
+}
+
+/// One line of an order, snapshotted.
+///
+/// This is the deliberate opposite of `BagLine`, and the difference is the
+/// whole point of the two models existing separately.
+///
+/// A bag stores a product id and nothing else, so it always resolves against
+/// the live catalogue: change a price in /admin and every bag holding that
+/// product shows the new price, which is correct — nobody has agreed to
+/// anything yet.
+///
+/// An order is a record of an agreement. It must say what was actually bought,
+/// at the price actually charged, under the name the customer actually saw. If
+/// it resolved against the catalogue the way a bag does, renaming a product
+/// would rewrite old invoices, deleting one would empty a past order, and a
+/// price rise would retroactively change what someone paid. So the title, the
+/// price and the image are copied at purchase time and never touched again.
+///
+/// `productId` is kept alongside the snapshot, without a foreign key, purely so
+/// "buy it again" can find the product if it still exists. Nothing about
+/// rendering the order depends on it resolving.
+model OrderItem {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// The catalogue id at the time of purchase. No relation on purpose — a
+  /// deleted product must not cascade away a line of somebody's order.
+  productId String
+
+  /// Snapshot. Never re-read from the catalogue.
+  title     String
+  imageSrc  String
+  imageAlt  String
+  /// Unit price in paise, as charged.
+  unitPrice Int
+  quantity  Int
+  /// unitPrice * quantity, stored rather than derived, so a line total can be
+  /// read back exactly as it was written even if the rule ever changes.
+  lineTotal Int
+
+  @@index([orderId])
+  @@index([productId])
 }

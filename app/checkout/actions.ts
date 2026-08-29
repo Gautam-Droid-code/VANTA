@@ -1,0 +1,256 @@
+"use server";
+
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { hasDatabase, prisma } from "@/lib/db";
+import { getCustomer } from "@/lib/auth/customerSession";
+import {
+  checkoutSchema,
+  emptyCheckoutState,
+  type CheckoutFormState,
+} from "@/lib/checkoutSchema";
+import { fieldErrors } from "@/lib/auth/accountSchema";
+import { generateOrderNumber, guestOrderPath, priceBag } from "@/lib/orders";
+
+/**
+ * Placing an order.
+ *
+ * Every rule here exists because a Server Action is a public POST endpoint with
+ * a hard-to-guess name — the Next docs are explicit that it must be treated as
+ * an untrusted entry point. The button being behind a checkout page protects
+ * nothing.
+ */
+
+const NO_DATABASE = "Checkout isn’t available right now. Please try again shortly.";
+
+/** Re-read here so a stale tab cannot place an order at yesterday's price. */
+function parseLines(raw: FormDataEntryValue | null): Array<{ productId: string; quantity: number }> {
+  try {
+    const parsed: unknown = JSON.parse(String(raw ?? "[]"));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry) => {
+      const productId = typeof entry?.productId === "string" ? entry.productId : "";
+      const quantity = Number(entry?.quantity);
+      return productId && Number.isFinite(quantity) && quantity > 0
+        ? [{ productId, quantity: Math.floor(quantity) }]
+        : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function createOrder(
+  _previous: CheckoutFormState,
+  formData: FormData,
+): Promise<CheckoutFormState> {
+  if (!hasDatabase()) return { errors: { form: NO_DATABASE } };
+
+  /**
+   * The caller is established from the session, never from the form.
+   *
+   * A `customerId` field would let anyone place orders against someone else's
+   * account. Null here simply means guest, which is a supported case.
+   */
+  const customer = await getCustomer();
+
+  const rawAddress = {
+    fullName: formData.get("fullName"),
+    phone: formData.get("phone"),
+    line1: formData.get("line1"),
+    line2: formData.get("line2") || undefined,
+    city: formData.get("city"),
+    state: formData.get("state"),
+    pincode: formData.get("pincode"),
+  };
+  const savedAddressId = String(formData.get("savedAddressId") ?? "").trim();
+
+  const parsed = checkoutSchema.safeParse({
+    email: formData.get("email") ?? customer?.email ?? "",
+    lines: parseLines(formData.get("lines")),
+    paymentMethod: formData.get("paymentMethod"),
+    savedAddressId: savedAddressId || undefined,
+    // Only validate the typed address when no saved one was chosen, or an empty
+    // set of fields would fail validation for someone who picked from the book.
+    address: savedAddressId ? undefined : rawAddress,
+    note: formData.get("note") || undefined,
+    saveAddress: formData.get("saveAddress") === "on",
+  });
+
+  if (!parsed.success) return { errors: fieldErrors(parsed.error) };
+  const input = parsed.data;
+
+  /**
+   * A saved address is resolved scoped to the signed-in customer.
+   *
+   * The id arrives from a form, so it is a hint, not authorisation. Looking it
+   * up unscoped would let anyone ship an order to an address belonging to
+   * someone else — and, worse, read it back off the order page afterwards.
+   */
+  let ship = input.address;
+  if (input.savedAddressId) {
+    if (!customer) return { errors: { form: "Sign in to use a saved address." } };
+    const saved = await prisma.address.findFirst({
+      where: { id: input.savedAddressId, customerId: customer.id },
+    });
+    if (!saved) return { errors: { address: "That address is no longer available." } };
+    ship = {
+      fullName: saved.fullName,
+      phone: saved.phone,
+      line1: saved.line1,
+      line2: saved.line2 ?? undefined,
+      city: saved.city,
+      state: saved.state,
+      pincode: saved.pincode,
+    };
+  }
+  if (!ship) return { errors: { address: "Choose a delivery address." } };
+
+  /**
+   * Priced again, here, from the catalogue.
+   *
+   * The summary the customer just looked at was rendered from an earlier read.
+   * This is the read that decides, so a price changed in /admin in between is
+   * caught rather than honoured.
+   */
+  const priced = await priceBag(input.lines);
+
+  if (priced.unavailable.length > 0) {
+    return {
+      errors: {
+        form:
+          priced.unavailable.length === 1
+            ? "One item in your bag is no longer available. Go back and review it."
+            : `${priced.unavailable.length} items in your bag are no longer available. Go back and review them.`,
+      },
+    };
+  }
+  if (priced.lines.length === 0) return { errors: { form: "Your bag is empty." } };
+
+  /**
+   * ONLINE stops at PENDING_PAYMENT.
+   *
+   * There is no payment provider yet. The order is written so the seam is real
+   * — a provider slots in by capturing against an existing order and moving it
+   * to CONFIRMED — rather than the flow pretending to take money it cannot.
+   */
+  const status = input.paymentMethod === "COD" ? "CONFIRMED" : "PENDING_PAYMENT";
+
+  let orderNumber = "";
+
+  /**
+   * Retried on a duplicate order number.
+   *
+   * `generateOrderNumber` counts this year's orders, which races under
+   * concurrent checkouts. The unique index is what makes that safe: a
+   * collision fails the insert instead of producing two orders sharing a
+   * number, and the retry picks up the now-higher count.
+   */
+  for (let attempt = 0; attempt < 5; attempt++) {
+    orderNumber = await generateOrderNumber();
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.order.create({
+          data: {
+            orderNumber,
+            customerId: customer?.id ?? null,
+            email: input.email,
+            status,
+            paymentMethod: input.paymentMethod,
+            shipName: ship.fullName,
+            shipPhone: ship.phone,
+            shipLine1: ship.line1,
+            shipLine2: ship.line2 ?? null,
+            shipCity: ship.city,
+            shipState: ship.state,
+            shipPincode: ship.pincode,
+            subtotal: priced.subtotal,
+            shipping: priced.shipping,
+            discount: priced.discount,
+            total: priced.total,
+            note: input.note ?? null,
+            // Written in the same transaction as the order: an order with no
+            // lines is not a lesser order, it is a corrupt one.
+            items: {
+              create: priced.lines.map((line) => ({
+                productId: line.productId,
+                title: line.title,
+                imageSrc: line.imageSrc,
+                imageAlt: line.imageAlt,
+                unitPrice: line.unitPrice,
+                quantity: line.quantity,
+                lineTotal: line.lineTotal,
+              })),
+            },
+          },
+        });
+
+        /**
+         * The server-side bag mirror is cleared inside the transaction.
+         *
+         * If it were cleared afterwards and that failed, the customer would
+         * have an order and a full bag, and their next device sync would put
+         * the just-bought items back. The client store is cleared separately by
+         * the confirmation page — see `components/OrderPlaced.tsx`.
+         */
+        if (customer) {
+          await tx.bagLine.deleteMany({ where: { customerId: customer.id } });
+        }
+
+        // Keeping a newly typed address is a convenience, not part of the
+        // order, so it never blocks the sale — but it does belong in the same
+        // transaction, or a failure here leaves a saved address for an order
+        // that was rolled back.
+        if (customer && input.saveAddress && !input.savedAddressId) {
+          const existing = await tx.address.count({ where: { customerId: customer.id } });
+          await tx.address.create({
+            data: {
+              customerId: customer.id,
+              fullName: ship.fullName,
+              phone: ship.phone,
+              line1: ship.line1,
+              line2: ship.line2 ?? null,
+              city: ship.city,
+              state: ship.state,
+              pincode: ship.pincode,
+              isDefault: existing === 0,
+            },
+          });
+        }
+      });
+      break;
+    } catch (error) {
+      const isDuplicate =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: unknown }).code === "P2002";
+      if (isDuplicate && attempt < 4) continue;
+      return { errors: { form: "Couldn’t place your order. Please try again." } };
+    }
+  }
+
+  if (customer) revalidatePath("/account");
+
+  /**
+   * Guests get a signed link; a signed-in customer does not need one, because
+   * the page authorises them by session. Handing a signed token to someone who
+   * is already authorised would put a shareable credential in their URL bar
+   * for no reason.
+   */
+  /**
+   * `placed=1` is what tells the order page this is an arrival from checkout,
+   * so it clears the browser's bag. Without it, opening the same URL from a
+   * confirmation email weeks later would empty whatever is in the bag then.
+   */
+  redirect(
+    customer
+      ? `/orders/${orderNumber}?placed=1`
+      : `${guestOrderPath(orderNumber)}&placed=1`,
+  );
+}
+
+/** Kept so this `"use server"` module exports only async functions. */
+export async function emptyState(): Promise<CheckoutFormState> {
+  return emptyCheckoutState;
+}

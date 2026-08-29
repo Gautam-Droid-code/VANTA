@@ -1214,6 +1214,142 @@ Admin cookies are `sameSite: strict` where the customer's are `lax`, and
 nothing links into it and there is no OAuth callback to return from — so the
 looser setting would buy nothing, and the storefront has no use for the cookie.
 
+## 26. Checkout and orders
+
+The brief asked for this as §25. That number was already taken by the admin
+hardening, so it is §26 — renumbering a section other notes point back to would
+have been worse than being one off from the request.
+
+Payments and shipping are deliberately absent. What is here is the record an
+order is, and a seam where a payment provider goes.
+
+### An order snapshots; a bag resolves
+
+This is the difference between `OrderItem` and `BagLine`, and it is the reason
+both exist.
+
+A bag stores a product id and nothing else (§21), so it always resolves against
+the live catalogue. Change a price in `/admin` and every bag holding that
+product shows the new price. That is correct: nobody has agreed to anything.
+
+An order is a record of an agreement. It must say what was bought, at the price
+charged, under the name the customer saw. If it resolved the way a bag does,
+renaming a product would rewrite old invoices, deleting one would empty a past
+order, and a price rise would retroactively change what someone paid. So the
+title, price and image are copied at purchase and never touched again.
+
+`productId` is kept beside the snapshot with **no foreign key**, purely so "buy
+it again" can find the product if it still exists. A relation would let a
+deleted product cascade away a line of somebody's order.
+
+### Money is paise, as an integer
+
+Every stored amount is an `Int` of paise. `0.1 + 0.2` is not `0.3` in binary
+floating point, and a rounding error in a currency column is the kind of bug
+found by a customer adding up their own invoice.
+
+The catalogue is authored in whole rupees, which is a different unit, so the
+conversion lives in exactly two places: `rupeesToPaise` on the way in and
+`formatPaise` on the way out. `formatPaise` is deliberately separate from
+`formatINR`, which takes rupees — one function accepting both would mean every
+caller had to know which it was passing, and the failure mode is a price wrong
+by a factor of a hundred.
+
+### The browser never sends a price
+
+The checkout form submits product ids and quantities. No prices, no line
+totals, no order total. `checkoutSchema` has no field for them, so a smuggled
+one is stripped rather than validated.
+
+The bag is priced **twice**, from the catalogue: once to render the summary,
+and again inside `createOrder` immediately before writing. Separate reads on
+purpose — a price can change between someone opening checkout and pressing the
+button, and the second read is the one that decides. Rendering a total and then
+trusting it would let a stale tab buy at yesterday's price.
+
+Accepting a total the server then "verifies" would give the checkout two
+sources of truth for what something costs, with the customer controlling one.
+
+### Guest checkout, and the signed link
+
+`customerId` is nullable. Requiring an account at checkout is the most reliable
+way to lose a first sale, so the model treats guests as a supported case rather
+than an exception the page has to work around.
+
+That creates a problem: order numbers are sequential and human-readable, so
+`/orders/VNT-2026-00042` would hand the previous customer's name, phone and
+address to anyone who could count. Guests reach their order through an HMAC of
+the order number under the existing session secret — unguessable, tied to that
+one order, needing no storage.
+
+Not expiring. A delivery confirmation is worth reading weeks later, and a link
+that dies after an hour sends people to support instead.
+
+A signed-in customer is authorised by session and gets **no** token: handing a
+shareable credential to someone already authorised puts one in their URL bar
+for no reason. An order belonging to someone else is `notFound`, not
+"forbidden" — saying it exists but is not yours confirms it exists.
+
+### The order number is not the key
+
+`VNT-2026-00042` is what a person quotes on the phone. The cuid remains the
+primary key, because order numbers are generated under contention: counting
+this year's orders and adding one races, and the unique index is what makes
+that safe. A collision fails the insert and the action retries, rather than two
+orders sharing a number or a relation pointing at the wrong row.
+
+A Postgres sequence would avoid the race and cost a migration plus a second
+source of truth for a display string. At this volume a retry loop is cheaper,
+and the failure mode is a unique violation rather than corruption.
+
+### One transaction, including the bag
+
+The order, its lines, the cleared server-side bag and an optionally saved
+address are one transaction. An order with no lines is not a lesser order, it
+is a corrupt one. And if the bag were cleared afterwards and that failed, the
+customer would have an order and a full bag, and their next device sync would
+put the just-bought items back.
+
+The **client** bag is cleared separately, by the order page, because
+`localStorage` is the authority (§21) and the server cannot reach it. Clearing
+it optimistically before the redirect would empty someone's bag on a redirect
+that then failed. Arriving on the order page is proof the order exists, and
+`?placed=1` distinguishes that arrival from someone opening the same link from
+a confirmation email weeks later — who must not have their current bag wiped.
+
+### ONLINE stops at PENDING_PAYMENT
+
+There is no payment provider. Choosing "Pay online" writes a real order in
+`PENDING_PAYMENT` and says plainly that nothing was charged. A provider slots
+in by capturing against an existing order and moving it to `CONFIRMED`.
+
+The alternative — hiding the option until payments exist — would have made the
+seam theoretical. The alternative to *that*, a "Pay now" button leading nowhere,
+is worst at the exact moment someone has decided to buy.
+
+### Shipping is zero because there is no rule
+
+The trust strip promises free delivery over ₹1,999, but there is no rate table
+and no serviceability check, so charging anything would be inventing a number.
+The columns exist on the order so adding a real rule later is a calculation
+change rather than a migration on a table with orders in it. The summary says
+"calculated later" rather than "free".
+
+### A prerendering bug this uncovered
+
+`/checkout`, `/account` and `/orders/[orderNumber]` all built as **static**.
+
+§24 recorded that reading the session in the root layout opts every route out
+of static prerendering. It does not, in one configuration: `getCustomer()`
+returns early when no database is configured, **before** it reaches `cookies()`,
+so the request-time API that would have marked the route dynamic is never
+called. With a database they become dynamic by side effect — which is a
+coupling that breaks silently, and did.
+
+All three now declare `force-dynamic` explicitly. `/bag` stays static on
+purpose: it is a shell hydrated from `localStorage` with no per-user server
+data in it.
+
 ## Known issues / follow-ups
 
 - **No two-factor on the admin.** Deliberately not half-built. TOTP itself is
@@ -1291,9 +1427,17 @@ looser setting would buy nothing, and the storefront has no use for the cookie.
   handful of products whose alt text happens to say it. The generated catalogue
   describes shape ("technical shell jacket") rather than colour. Better alt text
   — or real attribute fields — is what makes those searches work.
-- **No checkout.** The bag and wishlist work, but the checkout control is
-  inert and says so. Nothing behind it exists — no payment, no orders, no
-  addresses.
+- **No payments.** Orders exist and COD works end to end, but "Pay online"
+  only records a `PENDING_PAYMENT` order — there is no provider, no capture and
+  no refund path. §26.
+- **No shipping calculation.** Every order stores `shipping: 0`. There is no
+  rate table and no pincode serviceability check, so nothing is charged and the
+  summary says "calculated later" rather than promising free delivery. §26.
+- **No order confirmation email.** Nothing is sent when an order is placed. The
+  order page says so and tells the customer to keep the page, rather than
+  promising a message that will never arrive — but a guest who loses the link
+  currently has no way back to their order. A mailer is the fix; §26 explains
+  why the link is signed rather than expiring.
 - **Bag and wishlist are browser-local.** They live in `localStorage`, so they
   do not follow a shopper between devices and vanish if site data is cleared.
   That is the right shape while there are no accounts; it is the wrong shape

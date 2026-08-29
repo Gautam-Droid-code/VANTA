@@ -216,16 +216,16 @@ export function BagContents({ catalogue }: { catalogue: Product[] }) {
         )}
 
         {/*
-          Deliberately inert. There is no checkout, and a button that looks like
-          one would take a shopper to a dead end at the exact moment they have
-          decided to buy. It says what is true instead.
+          Live now. §21 recorded this as deliberately inert because there was
+          nowhere to send anyone; /checkout exists, so the honest thing is no
+          longer a disabled label.
         */}
-        <p
-          aria-disabled
-          className="w-full rounded-full bg-bone/10 px-8 py-4 text-center text-label-lg font-bold uppercase text-bone/40"
+        <Link
+          href="/checkout"
+          className="block w-full rounded-full bg-bone px-8 py-4 text-center text-label-lg font-bold uppercase text-ink transition-colors hover:bg-white"
         >
-          Checkout &mdash; coming soon
-        </p>
+          Checkout
+        </Link>
 
         <Link
           href="/products"

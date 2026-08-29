@@ -177,6 +177,42 @@ Much of the palette is off-white at reduced opacity over near-black. **Measure
 contrast before introducing a new muted tone below ~40% opacity** — see
 `DECISIONS.md` §10 for the current measured values and why.
 
+## Checkout and orders
+
+`/checkout` collects an address and places an order; `/orders/<orderNumber>`
+shows it. Reasoning is in `DECISIONS.md` §26.
+
+**Payments and shipping are not built.** Cash on delivery works end to end and
+creates a `CONFIRMED` order. "Pay online" writes a real `PENDING_PAYMENT` order
+and charges nothing — a seam for a provider, not a working payment. Every order
+stores `shipping: 0`, because there is no rate table to compute one from.
+
+**An order snapshots what was bought.** Title, price and image are copied at
+purchase time and never re-read from the catalogue. This is the opposite of the
+bag, which stores only ids and always resolves live — a bag should follow a
+price change, an invoice must not.
+
+**Money is stored in paise as an integer**, never a float. The catalogue is
+authored in whole rupees, so conversion happens in exactly two places:
+`rupeesToPaise` in and `formatPaise` out.
+
+**The browser never sends a price.** The form submits ids and quantities; the
+server prices the bag from the catalogue twice — once for the summary, once
+inside the action immediately before writing — so a stale tab cannot buy at an
+old price.
+
+**Guests can check out.** No account is required. Because order numbers are
+sequential and readable, a guest reaches their order through a signed link
+(`?t=`, an HMAC of the order number); a signed-in customer is authorised by
+session and gets no token.
+
+```bash
+npm run db:migrate    # creates the Order and OrderItem tables
+```
+
+Without `DATABASE_URL` the checkout page says orders aren't available rather
+than collecting an address and failing on submit.
+
 ## Security
 
 Admin hardening lives in a few places; `DECISIONS.md` §25 explains the reasoning.
