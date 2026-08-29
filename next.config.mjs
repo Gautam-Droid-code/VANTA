@@ -166,6 +166,17 @@ const nextConfig = {
         permanent: false,
       },
       { source: "/admin/sections", destination: "/admin/pages/homepage", permanent: false },
+      /**
+       * "Everything" moved to /products, which is the URL people try — every
+       * product link is /products/<slug>, and trimming one is a habit. Two
+       * live URLs listing the same 45 products would be duplicate content, so
+       * the old one redirects rather than staying as a second front door.
+       *
+       * Not permanent: the view still exists in the content model and could be
+       * given its own page again, and a 301 is cached by browsers for a very
+       * long time.
+       */
+      { source: "/collections/all", destination: "/products", permanent: false },
     ];
   },
 };

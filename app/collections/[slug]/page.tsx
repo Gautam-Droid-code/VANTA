@@ -116,7 +116,7 @@ export default async function CollectionPage({
               <div className="py-20 text-center">
                 <p className="text-base text-bone/60">{collectionPage.emptyMessage}</p>
                 <Link
-                  href="/collections/all"
+                  href="/products"
                   className="mt-4 inline-block text-label font-bold uppercase text-bone underline underline-offset-4 transition-opacity hover:opacity-70"
                 >
                   {collectionPage.emptyCtaLabel}

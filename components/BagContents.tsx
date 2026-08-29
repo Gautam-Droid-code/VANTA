@@ -76,7 +76,7 @@ export function BagContents({ catalogue }: { catalogue: Product[] }) {
             : "Your bag is empty."}
         </p>
         <Link
-          href="/collections/all"
+          href="/products"
           className="mt-4 inline-block text-label font-bold uppercase text-bone underline underline-offset-4 transition-opacity hover:opacity-70"
         >
           Start shopping
@@ -228,7 +228,7 @@ export function BagContents({ catalogue }: { catalogue: Product[] }) {
         </p>
 
         <Link
-          href="/collections/all"
+          href="/products"
           className="mt-4 block text-center text-xs uppercase tracking-[0.12em] text-bone/50 underline underline-offset-4 transition-colors hover:text-bone"
         >
           Continue shopping

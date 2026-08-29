@@ -51,7 +51,7 @@ export function WishlistContents({ catalogue }: { catalogue: Product[] }) {
           Tap the heart on any product to keep it here.
         </p>
         <Link
-          href="/collections/all"
+          href="/products"
           className="mt-4 inline-block text-label font-bold uppercase text-bone underline underline-offset-4 transition-opacity hover:opacity-70"
         >
           Start shopping

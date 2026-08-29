@@ -23,7 +23,7 @@ export function AccountsUnavailable() {
         stay put on this device but won’t follow you to another one.
       </p>
       <Link
-        href="/collections/all"
+        href="/products"
         className="mt-4 inline-block text-label font-bold uppercase text-bone underline underline-offset-4 transition-opacity hover:opacity-70"
       >
         Keep shopping

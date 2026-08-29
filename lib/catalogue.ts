@@ -108,7 +108,10 @@ export async function getCollectionLinks(): Promise<CollectionLink[]> {
   const view = (slug: ViewSlug): CollectionLink => ({
     slug,
     name: collectionPage.viewNames[slug],
-    href: `/collections/${slug}`,
+    // "Everything" lives at /products, which is the canonical all-products
+    // page; /collections/all redirects there. The other two views have no
+    // route of their own and stay under /collections.
+    href: slug === "all" ? "/products" : `/collections/${slug}`,
     count: VIEWS[slug].select(products).length,
   });
 
@@ -166,5 +169,12 @@ export async function getAllProductIds(): Promise<string[]> {
 
 export async function getAllCollectionSlugs(): Promise<string[]> {
   const { homepage } = await contentStore.read();
-  return [...Object.keys(VIEWS), ...homepage.categories.items.map((c) => c.id)];
+  /**
+   * "all" is excluded: /collections/all redirects to /products, and a
+   * generated page at that path would be served instead of the redirect ever
+   * firing. The view itself still exists — `getCollection("all")` answers, and
+   * /products is what asks.
+   */
+  const viewSlugs = Object.keys(VIEWS).filter((slug) => slug !== "all");
+  return [...viewSlugs, ...homepage.categories.items.map((c) => c.id)];
 }
