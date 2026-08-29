@@ -24,7 +24,13 @@ import {
   saveCustomerData,
   type CustomerData,
 } from "@/lib/auth/customerData";
-import { checkRateLimit, clearAttempts, recordFailure } from "@/lib/rateLimit";
+import {
+  checkAll,
+  clearAttemptsAll,
+  rateLimitKey,
+  recordFailureAll,
+} from "@/lib/rateLimit";
+import { TURNSTILE_FIELD, verifyTurnstileIfConfigured } from "@/lib/turnstile";
 
 /**
  * Everything a customer can do to their own account.
@@ -63,14 +69,48 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-/** Best-effort client identity for rate limiting, as used by the admin login. */
-async function clientKey(prefix: string): Promise<string> {
+async function clientIp(): Promise<string> {
   const headerList = await headers();
   const forwarded = headerList.get("x-forwarded-for");
-  const ip = forwarded
-    ? forwarded.split(",")[0].trim()
-    : (headerList.get("x-real-ip") ?? "unknown");
-  return `${prefix}:${ip}`;
+  return forwarded?.split(",")[0].trim() ?? headerList.get("x-real-ip") ?? "unknown";
+}
+
+/**
+ * Two buckets per attempt: the address it came from, and the account it is
+ * aimed at. IP alone lets a botnet spread guesses thinly enough to never trip
+ * the limit; email alone lets anyone lock a real customer out of their own
+ * account from anywhere.
+ */
+async function limitKeys(scope: string, identifier: string): Promise<string[]> {
+  const ip = await clientIp();
+  return [rateLimitKey.ip(scope, ip), rateLimitKey.identifier(scope, identifier)];
+}
+
+/**
+ * Customer forms fail **OPEN** where the admin login fails closed.
+ *
+ * A shopper locked out by a database blip is a lost sale and a support message,
+ * and what is being protected — one account, behind a scrypt hash — is worth
+ * less than the storefront staying usable. The admin login makes the opposite
+ * call, and both are written down in `lib/rateLimit.ts`.
+ */
+const FAIL_MODE = "open" as const;
+
+/**
+ * Captcha for the customer forms.
+ *
+ * Skipped when Turnstile is unconfigured, so development works without a
+ * Cloudflare account. That is the opposite of the admin login, deliberately:
+ * the cost of a missing captcha here is spam registrations, and the cost of
+ * refusing outright is a storefront nobody can sign up to.
+ */
+async function captchaOk(formData: FormData): Promise<boolean> {
+  const ip = await clientIp();
+  const result = await verifyTurnstileIfConfigured(
+    String(formData.get(TURNSTILE_FIELD) ?? ""),
+    ip === "unknown" ? null : ip,
+  );
+  return result.ok;
 }
 
 function tooManyAttempts(retryAfterSeconds: number): AccountFormState {
@@ -102,9 +142,16 @@ export async function registerAction(
   // Rate limited on signup as well as sign-in. Without it this endpoint is a
   // free way to hash arbitrary strings on someone else's server, and scrypt is
   // expensive by design.
-  const key = await clientKey("register");
-  const limit = checkRateLimit(key);
+  const keys = await limitKeys("register", parsed.data.email);
+  const limit = await checkAll(keys, FAIL_MODE);
   if (!limit.allowed) return tooManyAttempts(limit.retryAfterSeconds);
+
+  if (!(await captchaOk(formData))) {
+    // Counted, so posting straight to the action without ever loading the
+    // widget is not an unlimited free run at creating accounts.
+    await recordFailureAll(keys, FAIL_MODE);
+    return { errors: { form: "Couldn’t verify that you’re human. Please try again." } };
+  }
 
   const { name, email, password } = parsed.data;
 
@@ -113,10 +160,10 @@ export async function registerAction(
       data: { name, email, passwordHash: await hashPassword(password) },
       select: { id: true },
     });
-    clearAttempts(key);
+    await clearAttemptsAll(keys);
     await createCustomerSession(customer.id);
   } catch (error) {
-    recordFailure(key);
+    await recordFailureAll(keys, FAIL_MODE);
     // P2002 is the unique index on `email` doing its job. Checking first and
     // then inserting would be a race: two submissions of the same form a
     // millisecond apart would both find nothing and both try to insert.
@@ -151,9 +198,14 @@ export async function signInAction(
   });
   if (!parsed.success) return { errors: fieldErrors(parsed.error) };
 
-  const key = await clientKey("signin");
-  const limit = checkRateLimit(key);
+  const keys = await limitKeys("signin", parsed.data.email);
+  const limit = await checkAll(keys, FAIL_MODE);
   if (!limit.allowed) return tooManyAttempts(limit.retryAfterSeconds);
+
+  if (!(await captchaOk(formData))) {
+    await recordFailureAll(keys, FAIL_MODE);
+    return { errors: { form: "Couldn’t verify that you’re human. Please try again." } };
+  }
 
   const customer = await prisma.customer.findUnique({
     where: { email: parsed.data.email },
@@ -170,12 +222,12 @@ export async function signInAction(
   );
 
   if (!customer || !passwordOk) {
-    const after = recordFailure(key);
+    const after = await recordFailureAll(keys, FAIL_MODE);
     if (!after.allowed) return tooManyAttempts(after.retryAfterSeconds);
     return { errors: { form: GENERIC_SIGN_IN_ERROR } };
   }
 
-  clearAttempts(key);
+  await clearAttemptsAll(keys);
   await createCustomerSession(customer.id);
 
   const next = String(formData.get("next") ?? "");

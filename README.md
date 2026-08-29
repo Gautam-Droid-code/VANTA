@@ -38,6 +38,8 @@ cp .env.local.example .env.local
 | `DATABASE_URL` | Postgres, **pooled** connection string. Powers customer accounts, sessions, saved bags and the address book. Optional — the site runs without it. |
 | `DIRECT_DATABASE_URL` | The unpooled connection, used only by `prisma migrate`. Optional locally. |
 | `CONTENT_STORE_DRIVER` | `postgres` or `file`. Defaults to `postgres` when `DATABASE_URL` is set. |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key. Public — it is rendered into the page. |
+| `TURNSTILE_SECRET_KEY` | Turnstile secret key. **Never prefix this `NEXT_PUBLIC_`** — that would inline it into the browser bundle. Customer forms skip the captcha when it is unset; **`/admin/login` refuses to sign anyone in.** |
 
 Generate a session secret with:
 
@@ -174,6 +176,43 @@ transitions — see `DECISIONS.md` §2.
 Much of the palette is off-white at reduced opacity over near-black. **Measure
 contrast before introducing a new muted tone below ~40% opacity** — see
 `DECISIONS.md` §10 for the current measured values and why.
+
+## Security
+
+Admin hardening lives in a few places; `DECISIONS.md` §25 explains the reasoning.
+
+**Rate limiting is in Postgres**, keyed by IP *and* by the identifier being
+guessed, with exponential backoff. Two separate buckets, so one attacker
+spreading guesses across many IPs cannot lock a real user out, and one IP cannot
+dodge the limit by spreading guesses across many accounts.
+
+The admin login **fails closed** — if the limiter cannot be read, the attempt is
+refused. Customer sign-in **fails open**, because a shopper locked out by a
+database blip is a lost sale and the account behind it is worth less than the
+storefront staying usable.
+
+**Captcha is Cloudflare Turnstile**, verified server-side in the action with the
+remote IP included, and a reused token is rejected rather than assumed
+single-use. Applied to `/admin/login`, `/account/register` and `/account/login`.
+
+**Admin sessions are revocable.** The JWT carries a session id; the row is
+checked on every admin page and every admin action. `middleware.ts` still does
+the cheap Edge check on the token's signature, which stops admin markup
+rendering before a redirect — **that is not authorization**, and the comment in
+the file says so. `/admin/security` lists active sessions with a "sign out
+everywhere else", and shows a read-only audit log.
+
+Sessions use **sliding expiry**: active use extends them, idle ones hard-expire.
+
+**Security headers** are set in `next.config.mjs` — CSP, HSTS,
+`X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options` and
+`Permissions-Policy` — with `/admin` additionally `noindex` and `no-store` at
+the header level, so a crawler following a redirect never sees an indexable
+response. Server Actions are pinned to known origins.
+
+```bash
+npm run db:migrate    # creates the rate-limit, session and audit tables
+```
 
 ## Admin dashboard
 

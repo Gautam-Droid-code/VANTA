@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { loginAction, type LoginState } from "./actions";
 import { Button, Field, TextInput } from "@/components/admin/ui";
+import { TurnstileWidget } from "@/components/TurnstileWidget";
 
 const initialState: LoginState = { error: null };
 
@@ -41,6 +42,9 @@ export function LoginForm() {
           {state.error}
         </p>
       )}
+
+      <TurnstileWidget action="admin-login" />
+
 
       <Button type="submit" variant="primary" disabled={pending} className="w-full">
         {pending ? "Signing in…" : "Sign in"}

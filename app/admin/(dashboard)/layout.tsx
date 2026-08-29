@@ -1,7 +1,9 @@
 import { AdminDraftProvider } from "@/components/admin/AdminDraftProvider";
+import { redirect } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { contentStore } from "@/lib/contentStore";
 import { mediaStore } from "@/lib/mediaStore";
+import { getAdmin, touchAdminSession } from "@/lib/adminSession";
 
 /**
  * Dashboard chrome. Everything under this group is behind the session check in
@@ -29,6 +31,20 @@ export default async function AdminDashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  /**
+   * The real authorization check for every page in this group.
+   *
+   * `middleware.ts` has already checked the token's signature, but it runs on
+   * the Edge and cannot see whether the session was revoked. This does, and it
+   * runs before any page below renders — so revoking a session takes effect on
+   * the revoked browser's very next navigation rather than in seven days.
+   */
+  const admin = await getAdmin();
+  if (!admin) redirect("/admin/login");
+
+  // Sliding expiry. Debounced inside, so this is a no-op on most navigations.
+  await touchAdminSession(admin.sessionId);
+
   const [initial, initialMedia, initialDraft] = await Promise.all([
     contentStore.read(),
     mediaStore.list(),

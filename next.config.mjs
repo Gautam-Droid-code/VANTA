@@ -1,5 +1,140 @@
+/**
+ * The site's own host, resolved the same way `lib/siteUrl.ts` resolves it.
+ *
+ * Duplicated rather than imported: this file is loaded by the Next CLI before
+ * any TypeScript is compiled, so it cannot import the `.ts` module. The two
+ * must agree — if the order changes there, change it here.
+ */
+function siteHost() {
+  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (explicit) return new URL(explicit).host;
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (vercel) return vercel;
+  return "localhost:3000";
+}
+
+/**
+ * Content-Security-Policy.
+ *
+ * Turnstile needs exactly two extra origins — `script-src` and `frame-src` for
+ * `https://challenges.cloudflare.com`. That list is from Cloudflare's CSP
+ * reference, not from guesswork:
+ * https://developers.cloudflare.com/turnstile/reference/content-security-policy/
+ *
+ * `script-src` keeps `'unsafe-inline'`, and it is worth being honest about why
+ * rather than quietly shipping it. Next's App Router injects an inline
+ * bootstrap and inline flight-data chunks on every streamed response. Removing
+ * `'unsafe-inline'` means a per-request nonce, which means every page becomes
+ * dynamically rendered — the storefront's collection and product pages are
+ * statically generated today, and a nonce cannot be baked into a static page
+ * because it must differ per response. Trading the whole static-rendering
+ * story for a directive that `'strict-dynamic'` would need reworking anyway is
+ * not a good trade at this size.
+ *
+ * `'unsafe-eval'` is NOT here, and neither is a wildcard host. The value of
+ * this policy is mostly in `object-src 'none'`, `base-uri 'self'`,
+ * `form-action 'self'` and `frame-ancestors 'none'` — the directives that stop
+ * an injected `<base>`, a form retargeted to another origin, and clickjacking.
+ *
+ * Turnstile propagates a nonce to its own dynamically loaded resources and
+ * supports `'strict-dynamic'`, so tightening this later is a change to this
+ * file plus a nonce in middleware, not a redesign.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+  "frame-src 'self' https://challenges.cloudflare.com",
+  "connect-src 'self' https://challenges.cloudflare.com",
+  // Tailwind and next/font both emit inline styles; there is no nonce-free
+  // alternative, and injected CSS is a far smaller problem than injected JS.
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  // `data:` and `blob:` are for next/image's own placeholder and optimiser.
+  "img-src 'self' data: blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "upgrade-insecure-requests",
+].join("; ");
+
+const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: CSP },
+  /**
+   * Two years, with subdomains and preload. Only meaningful over HTTPS, and
+   * ignored by browsers on plain HTTP, so it is safe to send in development.
+   */
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  /** Send the full URL to ourselves, only the origin to anyone else. */
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  /** `frame-ancestors` above supersedes this; kept for older browsers. */
+  { key: "X-Frame-Options", value: "DENY" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+  },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    /**
+     * Server Actions only accept calls whose Origin is one of these.
+     *
+     * Next already checks Origin against Host, which stops the ordinary
+     * cross-site case. This pins it to known hosts as well, so a proxy or a
+     * misconfigured rewrite that presents a different Host cannot turn every
+     * action into a cross-origin endpoint.
+     */
+    serverActions: {
+      allowedOrigins: [
+        siteHost(),
+        "localhost:3000",
+        // Vercel gives every deployment its own hostname; without this, actions
+        // fail on preview URLs while working in production.
+        ...(process.env.VERCEL_URL ? [process.env.VERCEL_URL] : []),
+      ],
+    },
+  },
+
+  async headers() {
+    return [
+      {
+        // Everything. A header set only on pages leaves API routes, images and
+        // the media route uncovered.
+        source: "/:path*",
+        headers: SECURITY_HEADERS,
+      },
+      {
+        /**
+         * `/admin` is noindex at the header level, not only in page metadata.
+         *
+         * A `<meta>` tag is only read if the crawler renders the page — and
+         * every admin URL redirects to a login screen before rendering
+         * anything, so the tag a crawler would need to see is on a page it
+         * never reaches. The header is on the redirect too.
+         */
+        source: "/admin/:path*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          // Nothing under /admin should ever be held by a shared cache.
+          { key: "Cache-Control", value: "no-store, max-age=0" },
+        ],
+      },
+      {
+        source: "/admin",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          { key: "Cache-Control", value: "no-store, max-age=0" },
+        ],
+      },
+    ];
+  },
+
   async redirects() {
     return [
       /**

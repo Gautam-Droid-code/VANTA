@@ -2,29 +2,53 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 
 /**
- * Gates every `/admin` route behind a valid session cookie.
+ * Gates every `/admin` route behind a signed session cookie.
  *
- * Enforcement lives here rather than in the pages so a direct URL visit is
- * redirected before any admin markup is produced — nothing flashes on screen.
- * `lib/session.ts` is `jose`-only so it runs on the Edge runtime.
+ * **This is not authorization.** It checks the token's signature only, which is
+ * all it can do: the Edge runtime must not open a database connection, so it
+ * cannot know whether the session behind the token was revoked. Its job is to
+ * stop a signed-out visit rendering admin markup before it redirects — nothing
+ * flashes on screen.
+ *
+ * The real check is the row, verified by `lib/adminSession.ts` on the Node
+ * runtime, which every admin page and every admin action calls before doing
+ * anything. A session revoked a minute ago still passes here and is refused
+ * there.
  */
+/**
+ * Forces `no-store` on every admin response.
+ *
+ * `next.config.mjs` sets this too, but Next overrides it with its own
+ * `no-cache, must-revalidate` on dynamically rendered routes — verified
+ * against `/admin/login`. `no-cache` still permits a shared cache to *store*
+ * the response and merely revalidate it; `no-store` is the one that says a
+ * proxy may not keep a copy of a signed-in admin page at all.
+ *
+ * Set here because middleware runs on every matched request and its headers
+ * survive onto the response, which is what makes it the last word.
+ */
+function noStore(response: NextResponse): NextResponse {
+  response.headers.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
   // The login page must stay reachable without a session, or nobody can get in.
   if (pathname === "/admin/login") {
-    const username = await verifySessionToken(
+    const claims = await verifySessionToken(
       request.cookies.get(SESSION_COOKIE)?.value,
     );
     // Already signed in — no reason to show the form again.
-    if (username) {
-      return NextResponse.redirect(new URL("/admin", request.url));
+    if (claims) {
+      return noStore(NextResponse.redirect(new URL("/admin", request.url)));
     }
-    return NextResponse.next();
+    return noStore(NextResponse.next());
   }
 
-  const username = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
-  if (username) return NextResponse.next();
+  const claims = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  if (claims) return noStore(NextResponse.next());
 
   const loginUrl = new URL("/admin/login", request.url);
   // Remember where they were headed so a later step can send them back.
@@ -32,7 +56,7 @@ export async function middleware(request: NextRequest) {
     loginUrl.searchParams.set("from", pathname + search);
   }
 
-  const response = NextResponse.redirect(loginUrl);
+  const response = noStore(NextResponse.redirect(loginUrl));
   // Clear an invalid/expired cookie so it isn't re-sent on every request.
   response.cookies.delete(SESSION_COOKIE);
   return response;

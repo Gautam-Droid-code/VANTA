@@ -27,8 +27,23 @@ function secretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-export async function createSessionToken(username: string): Promise<string> {
-  return new SignJWT({ sub: username })
+/**
+ * What middleware can learn from the cookie alone, with no database.
+ *
+ * `sid` is the row in `AdminSession`. The token proves the server issued it;
+ * only the row can say whether it is still valid, and checking that is
+ * `lib/adminSession.ts`'s job on the Node runtime.
+ */
+export interface AdminTokenClaims {
+  username: string;
+  sessionId: string;
+}
+
+export async function createSessionToken(
+  username: string,
+  sessionId: string,
+): Promise<string> {
+  return new SignJWT({ sub: username, sid: sessionId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setIssuer(ISSUER)
@@ -37,8 +52,21 @@ export async function createSessionToken(username: string): Promise<string> {
     .sign(secretKey());
 }
 
-/** Returns the username, or null if the token is missing/invalid/expired. */
-export async function verifySessionToken(token: string | undefined): Promise<string | null> {
+/**
+ * Checks the signature and returns the claims, or null.
+ *
+ * **This is not authorization.** It proves the cookie was issued by this server
+ * and has not expired — nothing more. A session revoked five minutes ago still
+ * passes here, because the answer to "was it revoked" is a row and this module
+ * must stay free of `node:` imports so middleware can run it on the Edge.
+ *
+ * Middleware uses it to avoid rendering admin markup for an obvious stranger.
+ * Everything that actually does something calls `requireAdmin()` from
+ * `lib/adminSession.ts`, which checks the row.
+ */
+export async function verifySessionToken(
+  token: string | undefined,
+): Promise<AdminTokenClaims | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secretKey(), {
@@ -46,8 +74,30 @@ export async function verifySessionToken(token: string | undefined): Promise<str
       audience: AUDIENCE,
       algorithms: ["HS256"],
     });
-    return typeof payload.sub === "string" ? payload.sub : null;
+    if (typeof payload.sub !== "string" || typeof payload.sid !== "string") return null;
+    return { username: payload.sub, sessionId: payload.sid };
   } catch {
     return null;
   }
 }
+
+/**
+ * Cookie attributes, in one place so the login action and the sign-out path
+ * cannot drift apart.
+ *
+ * `sameSite: "strict"` where the customer session uses `lax`. The admin has no
+ * cross-site entry point — nobody links into it, and there is no OAuth callback
+ * to come back from — so the looser setting would buy nothing and would leave
+ * the cookie attached to top-level navigations originating elsewhere.
+ *
+ * `path: "/admin"` rather than `/`: the storefront has no use for this cookie,
+ * and not sending it on every product page request is one less place it can
+ * leak from.
+ */
+export const ADMIN_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "strict",
+  path: "/admin",
+  maxAge: SESSION_MAX_AGE,
+} as const;

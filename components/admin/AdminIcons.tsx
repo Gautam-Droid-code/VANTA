@@ -61,6 +61,13 @@ export const PhotosIcon = (p: IconProps) => (
   </svg>
 );
 
+/** Sessions, the audit log — anything about who got in and what they did. */
+export const ShieldIcon = (p: IconProps) => (
+  <svg {...base} {...p}>
+    <path d="M12 3.5 5 6.2v5.1c0 4 2.9 7.6 7 9.2 4.1-1.6 7-5.2 7-9.2V6.2L12 3.5Z" />
+  </svg>
+);
+
 export const SettingsIcon = (p: IconProps) => (
   <svg {...base} {...p}>
     <circle cx="12" cy="12" r="3" />

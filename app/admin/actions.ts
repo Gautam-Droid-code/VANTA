@@ -1,17 +1,25 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { draftContentSchema, siteContentSchema } from "@/lib/contentSchema";
 import { contentStore, type SiteContent } from "@/lib/contentStore";
 import { mediaStore, type MediaItem } from "@/lib/mediaStore";
 import { processUpload } from "@/lib/processUpload";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { getAdmin } from "@/lib/adminSession";
+import { recordAudit } from "@/lib/auditLog";
 
-/** Shared by every action here: no valid session, no work. */
+/**
+ * Shared by every action here: no valid session, no work.
+ *
+ * Goes through `getAdmin()` rather than verifying the token directly, so a
+ * revoked session is refused. Verifying the signature alone would accept a
+ * cookie belonging to a session someone had explicitly signed out of — which
+ * is the gap revocable sessions exist to close, and a server action is exactly
+ * where a stale token would still be worth using.
+ */
 async function requireSession(): Promise<string | null> {
-  const jar = await cookies();
-  return verifySessionToken(jar.get(SESSION_COOKIE)?.value);
+  const admin = await getAdmin();
+  return admin?.username ?? null;
 }
 
 const EXPIRED = "Your session has expired. Please sign in again.";
@@ -37,7 +45,8 @@ export interface PublishResult {
  *    the storefront and break it. Validation is what stops that.
  */
 export async function publishContent(payload: unknown): Promise<PublishResult> {
-  if (!(await requireSession())) {
+  const actor = await requireSession();
+  if (!actor) {
     return { ok: false, error: EXPIRED, publishedAt: null };
   }
 
@@ -68,6 +77,14 @@ export async function publishContent(payload: unknown): Promise<PublishResult> {
   revalidatePath("/");
   revalidatePath("/admin", "layout");
 
+  await recordAudit({
+    actor,
+    action: "content.publish",
+    // The sections that changed, not the content itself: a log holding a full
+    // copy of every publish is a second content store nobody maintains.
+    detail: { products: parsed.data.products.length },
+  });
+
   return { ok: true, error: null, publishedAt: new Date().toISOString() };
 }
 
@@ -86,7 +103,8 @@ export type UploadResult =
  * nothing of the original file's container survives to be served.
  */
 export async function uploadMedia(formData: FormData): Promise<UploadResult> {
-  if (!(await requireSession())) {
+  const actor = await requireSession();
+  if (!actor) {
     return { ok: false, item: null, error: EXPIRED };
   }
 
@@ -106,6 +124,18 @@ export async function uploadMedia(formData: FormData): Promise<UploadResult> {
     return { ok: false, item: null, error: "Couldn’t save that image. Please try again." };
   }
 
+  await recordAudit({
+    actor,
+    action: "media.uploaded",
+    target: processed.value.item.id,
+    detail: {
+      label: processed.value.item.label,
+      bytes: processed.value.item.bytes,
+      width: processed.value.item.width,
+      height: processed.value.item.height,
+    },
+  });
+
   return { ok: true, item: processed.value.item, error: null };
 }
 
@@ -119,13 +149,16 @@ export async function uploadMedia(formData: FormData): Promise<UploadResult> {
  * broken page.
  */
 export async function deleteMedia(id: string): Promise<{ ok: boolean; error: string | null }> {
-  if (!(await requireSession())) return { ok: false, error: EXPIRED };
+  const actor = await requireSession();
+  if (!actor) return { ok: false, error: EXPIRED };
 
   try {
     await mediaStore.remove(id);
   } catch {
     return { ok: false, error: "Couldn’t delete that image. Please try again." };
   }
+
+  await recordAudit({ actor, action: "media.deleted", target: id });
   return { ok: true, error: null };
 }
 

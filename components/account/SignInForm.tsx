@@ -10,6 +10,7 @@ import {
   SubmitButton,
   TextInput,
 } from "@/components/account/AccountFormParts";
+import { TurnstileWidget } from "@/components/TurnstileWidget";
 
 /**
  * Sign in.
@@ -53,6 +54,8 @@ export function SignInForm({ next }: { next?: string }) {
       </Field>
 
       <FormError message={state.errors.form} />
+
+      <TurnstileWidget action="account-signin" />
 
       <SubmitButton pendingLabel="Signing in…">Sign in</SubmitButton>
 

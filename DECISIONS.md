@@ -585,27 +585,21 @@ failure and never indicates which field was wrong — distinguishing them would
 confirm a valid username. A *different* message is shown when the server has no
 credentials configured, since that's an operator problem, not a user error.
 
-### Rate limiting is in-memory — interim only
+### Rate limiting — superseded by §25
 
-`lib/rateLimit.ts` holds attempt counters in a module-level `Map`: 5 failures
-per client locks that client out for 10 minutes, and a lockout refuses even
-correct credentials. Verified: lockout triggers on attempt 5, and correct
-credentials are refused while it's active.
+This section used to record an in-memory `Map` as an interim measure that
+"will not hold up in production", to be moved to a shared store once one
+existed. **That has happened**: `lib/rateLimit.ts` is backed by Postgres, keyed
+by IP and identifier separately, with exponential backoff. See §25.
 
-**This will not hold up in production.**
+Two things from the original caveat still stand and are worth keeping here:
 
-- Serverless cold starts wipe the `Map`, resetting every counter.
-- Multiple instances each keep their own copy, so the effective limit is
-  5 × the number of instances.
-- Restarting the server clears all lockouts — observed directly while testing.
-
-**It must move to a shared persistent store (Vercel KV / Redis) when
-persistence is wired up**, alongside the admin data layer (§15). Until then it
-raises the cost of a naive brute-force without being a real control.
-
-The client key comes from `x-forwarded-for` / `x-real-ip`, which is
-spoofable unless the deployment guarantees those headers are set by a trusted
-proxy. On Vercel they are; on any other host this needs checking.
+- The client key comes from `x-forwarded-for` / `x-real-ip`, which is spoofable
+  unless the deployment guarantees those headers are set by a trusted proxy. On
+  Vercel they are; on any other host this needs checking. Moving the counter
+  into a database did not make the identity behind it any more trustworthy.
+- The session described above is superseded in one respect too: the token now
+  carries a session id and can be revoked. §25.
 
 ## 18. Cinematic scroll — storefront only
 
@@ -1071,7 +1065,167 @@ whatever was published the day it was deployed. Only the boolean crosses into
 the client tree — the customer's name and email stay on the server, where the
 pages that need them read them directly.
 
+## 25. Hardening the admin
+
+§17 described a session that could not be revoked and a rate limiter that reset
+on every cold start, and accepted both because there was no database. §24 added
+one. This closes them.
+
+### Rate limiting, in Postgres, on two keys
+
+The `Map` was not a small problem. On a serverless host every request can be a
+fresh process, so the counter reset constantly and the effective limit was
+"five attempts per instance" — against `/admin/login`, which is the only thing
+between a stranger and an unlimited guessing loop.
+
+Postgres rather than Redis or Vercel KV, which §17 suggested: there is already
+a connection open for everything else, and a second datastore for six columns
+is a second thing to provision, a second thing to fail, and a second place for
+the answer to live. The write volume is a handful of rows per failed login.
+
+**Two buckets, counted separately.** IP alone lets a botnet spread guesses
+thinly enough never to trip the limit. Identifier alone lets anyone lock the
+real administrator out of their own account by guessing at their username from
+anywhere. Both are checked, and the more restrictive answer wins.
+
+**Exponential backoff.** A fixed ten minutes is a limit an attacker waits out
+forever, five guesses at a time. Doubling to a capped 24 hours means a script
+puts itself out of action for a day, while someone who mistyped twice this
+month never notices. `lockoutCount` survives the window reset deliberately —
+otherwise the backoff would restart every time and never escalate.
+
+### Fail closed for the admin, open for customers
+
+If the limiter itself errors, the two callers want opposite things, and getting
+it backwards is worse than having no limiter at all.
+
+The **admin login fails closed**: no counter, no attempt. There is one
+administrator and they can wait a minute; the alternative is that anyone able
+to make the database unreachable has also removed the only brute-force control
+on the account that can rewrite the entire site.
+
+**Customer sign-in fails open**: a shopper locked out by a database blip is a
+lost sale and a support message, and one account behind a scrypt hash is worth
+less than the storefront staying usable.
+
+### Turnstile, verified server-side
+
+Endpoint, parameter names, response fields and error codes are from
+Cloudflare's siteverify reference, not from memory. The token is verified in
+the server action every time — a widget that renders and is never checked is
+decoration, and anyone posting straight to the action never sees the widget at
+all.
+
+`remoteip` is sent because Cloudflare uses it as a signal, and
+`idempotency_key` so that a retry after a network wobble is not counted as a
+second redemption.
+
+**Reuse is enforced, not assumed.** Cloudflare documents tokens as single-use
+and returns `timeout-or-duplicate` on reuse, but "documented as" is not
+"enforced by us": a hash of every accepted token is recorded, so one solved
+challenge cannot be replayed even if siteverify's own window softens.
+
+Verification failing — Cloudflare unreachable, or slower than the timeout —
+**fails closed**. A captcha that waves everything through the moment it cannot
+reach its verifier is one an attacker disables by making a single host
+unreachable.
+
+**Unconfigured behaves differently by surface, deliberately.** The customer
+forms skip the check so development works without a Cloudflare account. The
+admin login refuses to sign anyone in and says the server is misconfigured. An
+admin login that silently drops its captcha when an environment variable goes
+missing is worse than one that never had it, because everything keeps working
+and nobody finds out until the logs are read months later.
+
+### Revocable admin sessions, without giving up the Edge check
+
+The token now carries a session id, and `AdminSession` is a row.
+
+- `middleware.ts` verifies the **signature** on the Edge. It opens no
+  connection, so it cannot know whether the session was revoked. Its job is to
+  stop a signed-out URL rendering admin markup before it redirects.
+  **Middleware is not authorization**, and the file says so.
+- `lib/adminSession.ts` verifies the **row** on the Node runtime — present, not
+  revoked, not expired, not idle. The dashboard layout calls it before any page
+  renders, and every admin action calls it before doing anything, so a revoked
+  session's still-valid token is worthless on its very next navigation.
+
+Putting the row check in middleware instead would mean a database round trip on
+every asset and every prefetch, from a runtime that cannot hold a pool.
+
+The username is read from the row, not the token. They cannot disagree today,
+but the row is the record and the token is a copy of it — reading the copy is
+how the two quietly drift apart later.
+
+**Revoked, not deleted.** "Signed out at 14:02 from this address" stays
+answerable afterwards; a delete erases the evidence at the exact moment someone
+is trying to work out what happened.
+
+**Sliding expiry** with a five-minute touch debounce. Without the debounce every
+image and every prefetch would be an UPDATE; five minutes of drift on a "last
+seen" column costs nothing.
+
+### The audit log
+
+Who, what, when, from where — the question nobody can answer from the content
+store alone, because a published document only records its current state.
+
+`recordAudit` never throws. An action that succeeded and then failed to log has
+still succeeded, and turning that into an error the operator sees would make the
+log a new way for publishing to break. The trade is that a failed write is
+silent, which is the wrong answer for tamper-evidence and the right one for an
+operational record kept by a single administrator.
+
+Actions are a union type, not free strings: a log where one publish is
+`content.publish` and another is `publish_content` cannot be filtered, and the
+mistake is invisible until someone needs it.
+
+**Never a credential.** No passwords, no tokens, no captcha secrets, no request
+bodies. A failed sign-in records the attempted *username* and never the
+attempted password — knowing which account was targeted is the point, and
+storing a near-miss of the real password in a readable table is not.
+
+### Headers, and what the CSP does not do
+
+`script-src` keeps `'unsafe-inline'`, and that is worth being honest about
+rather than quietly shipping. Next's App Router injects an inline bootstrap and
+inline flight data on every streamed response. Removing it means a per-request
+nonce, which means every page renders dynamically — and the storefront's
+collection and product pages are statically generated today. Trading the whole
+static-rendering story for one directive is not a good trade at this size.
+`'unsafe-eval'` is absent, and so is any wildcard host. Turnstile propagates a
+nonce to its own resources and supports `'strict-dynamic'`, so tightening this
+later is a change to one file rather than a redesign.
+
+`/admin` is `noindex` **at the header level**, not only in page metadata. A
+`<meta>` tag is only read if the crawler renders the page, and every admin URL
+redirects to a login screen before rendering anything — the tag a crawler would
+need is on a page it never reaches. Verified against a production build: the 307
+redirect carries `X-Robots-Tag` and `Cache-Control: no-store`.
+
+`no-store` is set in middleware as well as in `next.config.mjs`, because Next
+overrides the config value with its own `no-cache, must-revalidate` on
+dynamically rendered routes. `no-cache` still lets a shared cache *store* a
+signed-in admin page and merely revalidate it; `no-store` is the one that says
+it may not keep a copy at all.
+
+Admin cookies are `sameSite: strict` where the customer's are `lax`, and
+`path: /admin` rather than `/`. The admin has no cross-site entry point —
+nothing links into it and there is no OAuth callback to return from — so the
+looser setting would buy nothing, and the storefront has no use for the cookie.
+
 ## Known issues / follow-ups
+
+- **No two-factor on the admin.** Deliberately not half-built. TOTP itself is
+  small, but the admin identity is a pair of environment variables rather than a
+  row — so an enrolled secret, its recovery codes and an "is 2FA on" flag have
+  nowhere to live without inventing an admin-user table, which changes what
+  `ADMIN_USERNAME` means and reopens §17's whole model. It also needs an
+  enrolment screen, a QR encoder (a new dependency), hashed recovery codes, a
+  second step in the login flow, and a documented way back in for someone who
+  has lost their phone — that last part being the one usually skipped, and the
+  only reason the rest of it matters. Worth doing as its own change, with the
+  admin becoming a real row first.
 
 - **The policy pages are placeholder text.** `/returns`, `/shipping`, `/terms`
   and `/privacy` exist and are internally consistent with what the storefront

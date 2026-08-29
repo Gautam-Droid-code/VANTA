@@ -142,3 +142,102 @@ model ContentDocument {
   content Json
   savedAt DateTime @default(now()) @updatedAt
 }
+
+/// A rate-limit bucket, keyed by whatever the caller is limiting on.
+///
+/// In Postgres rather than a module-level Map because on a serverless host
+/// every request can be a fresh process: the Map resets constantly, and the
+/// effective limit becomes "five attempts per instance", which against
+/// /admin/login is barely a limit at all.
+///
+/// The key is scoped by the caller (`admin:ip:1.2.3.4`, `admin:user:bunny`) so
+/// that IP and identifier are counted separately — one attacker working from
+/// many IPs cannot lock a real administrator out of their own account, and one
+/// IP cannot dodge the limit by spreading guesses across many usernames.
+model RateLimitBucket {
+  key String @id
+
+  /// Failures inside the current window.
+  failures Int @default(0)
+
+  /// Start of the window. Failures older than the window are forgotten by
+  /// resetting rather than by storing every timestamp — a count and a start
+  /// time answer the same question in two columns instead of an array.
+  windowStartedAt DateTime @default(now())
+
+  /// Set once the limit trips. Null means "not locked".
+  lockedUntil DateTime?
+
+  /// How many times this key has been locked out. Drives exponential backoff:
+  /// a second lockout lasts longer than the first.
+  lockoutCount Int @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  /// Swept by `pruneRateLimits()`. Indexed so the sweep is a range scan rather
+  /// than a full table scan once this table is large.
+  @@index([updatedAt])
+}
+
+/// A signed-in administrator.
+///
+/// §17 accepted that the admin's JWT could not be revoked, because there was
+/// no database to revoke against. There is now.
+///
+/// The token still exists and middleware still checks it on the Edge without
+/// opening a connection — that check is what stops admin markup flashing before
+/// a redirect. It is not authorization. The row is: every admin page and every
+/// admin action re-checks it through `lib/adminSession.ts` before doing
+/// anything, and a revoked row makes the still-valid token worthless.
+model AdminSession {
+  id String @id @default(cuid())
+
+  /// Which admin username the session was issued to. Not a foreign key: the
+  /// administrator is a pair of environment variables, not a row.
+  username String
+
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  /// Set instead of deleting, so "signed out at 14:02 from this address" stays
+  /// answerable after the fact. Deleting would erase the evidence.
+  revokedAt  DateTime?
+
+  userAgent String?
+  ip        String?
+
+  @@index([username])
+  @@index([expiresAt])
+}
+
+/// What happened in the admin, who did it, and from where.
+///
+/// Append-only by convention — nothing in the app updates or deletes a row.
+/// Never records a password, a session token, a captcha secret or a request
+/// body: an audit log that contains credentials is a second place to steal
+/// them from, and the whole point is that it can be read.
+model AdminAuditLog {
+  id String @id @default(cuid())
+
+  at DateTime @default(now())
+
+  /// Username where known; "anonymous" for a failed sign-in, which is the one
+  /// case where the actor is a claim rather than a fact.
+  actor String
+
+  /// A stable machine-readable verb — "admin.signin.failed", "content.publish".
+  action String
+
+  /// What was acted on, when that makes sense: a product id, a section key.
+  target String?
+
+  /// Anything else worth keeping. Small, structured, and never a credential.
+  detail Json?
+
+  ip        String?
+  userAgent String?
+
+  @@index([at])
+  @@index([actor])
+  @@index([action])
+}

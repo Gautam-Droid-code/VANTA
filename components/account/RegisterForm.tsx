@@ -10,6 +10,7 @@ import {
   SubmitButton,
   TextInput,
 } from "@/components/account/AccountFormParts";
+import { TurnstileWidget } from "@/components/TurnstileWidget";
 
 /**
  * Create an account.
@@ -72,6 +73,8 @@ export function RegisterForm({ next }: { next?: string }) {
       </Field>
 
       <FormError message={state.errors.form} />
+
+      <TurnstileWidget action="account-register" />
 
       <SubmitButton pendingLabel="Creating account…">Create account</SubmitButton>
 
