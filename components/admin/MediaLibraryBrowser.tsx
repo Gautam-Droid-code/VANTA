@@ -4,7 +4,7 @@ import { useId, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { deleteMedia, uploadMedia } from "@/app/admin/actions";
-import { ACCEPTED_MIME, MAX_UPLOAD_MB } from "@/lib/mediaLimits";
+import { ACCEPTED_MIME, MAX_UPLOAD_MB, checkUploadSize } from "@/lib/mediaLimits";
 import { imageGuidance } from "@/lib/imageGuidance";
 import { useDraft } from "./AdminDraftProvider";
 import { mediaLibrary } from "./mediaLibrary";
@@ -79,6 +79,13 @@ export function MediaLibraryBrowser() {
 
   const upload = (file: File) => {
     setError(null);
+    // See ImagePicker: an over-limit body dies in transport, so the size is
+    // checked before the request rather than inside the action.
+    const tooBig = checkUploadSize(file);
+    if (tooBig) {
+      setError(tooBig);
+      return;
+    }
     startTransition(async () => {
       const form = new FormData();
       form.set("file", file);

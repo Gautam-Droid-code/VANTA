@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import type { ImageAsset } from "@/data/types";
 import { uploadMedia, deleteMedia } from "@/app/admin/actions";
-import { ACCEPTED_MIME, MAX_UPLOAD_MB } from "@/lib/mediaLimits";
+import { ACCEPTED_MIME, MAX_UPLOAD_MB, checkUploadSize } from "@/lib/mediaLimits";
 import { imageGuidance, type ImageSlot } from "@/lib/imageGuidance";
 import { useDraft } from "./AdminDraftProvider";
 import { mediaLibrary } from "./mediaLibrary";
@@ -78,6 +78,13 @@ export function ImagePicker({
 
   const upload = (file: File) => {
     setError(null);
+    // Refused here rather than sent and rejected: an over-limit body fails in
+    // transport as a framework error, never reaching the message below.
+    const tooBig = checkUploadSize(file);
+    if (tooBig) {
+      setError(tooBig);
+      return;
+    }
     startUpload(async () => {
       const form = new FormData();
       form.set("file", file);

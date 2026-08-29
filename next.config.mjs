@@ -109,6 +109,23 @@ const nextConfig = {
      * action into a cross-origin endpoint.
      */
     serverActions: {
+      /**
+       * Photo uploads go through a Server Action, and the default body limit is
+       * 1 MB — well under the 12 MB `lib/mediaLimits.ts` advertises. Any photo
+       * from a phone exceeded it, and the failure was a Next runtime error
+       * rather than the friendly message the upload path already has, because
+       * the request died in transport before any of that code ran.
+       *
+       * 16 MB, not 12: multipart framing and the action's own payload ride
+       * along with the file, so a limit set exactly at the file size rejects
+       * a file that is exactly at the file size.
+       *
+       * Must stay above MAX_UPLOAD_BYTES. The real check is server-side in
+       * `processUpload`, which decodes the image rather than trusting a
+       * declared length; this only has to be loose enough to let a legitimate
+       * upload arrive and be judged.
+       */
+      bodySizeLimit: "16mb",
       allowedOrigins: [
         siteHost(),
         "localhost:3000",
