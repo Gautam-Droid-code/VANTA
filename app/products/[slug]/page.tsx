@@ -11,6 +11,7 @@ import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { ProductCard } from "@/components/ProductCard";
 import { AddToBagButton } from "@/components/AddToBagButton";
+import { PincodeCheck } from "@/components/shipping/PincodeCheck";
 import { SaveButton } from "@/components/SaveButton";
 import { trustIcons } from "@/components/ui/Icons";
 
@@ -114,6 +115,11 @@ export default async function ProductPage({
               <AddToBagButton productId={product.id} />
               <SaveButton productId={product.id} productName={product.name} />
             </div>
+
+            {/* Before the bag, not after checkout. The two things that decide
+                whether this is worth buying are whether it reaches them and
+                when — asking at the last step of checkout is too late. */}
+            <PincodeCheck className="mt-6" valueRupees={product.price} />
 
             {/* The buying facts, in the same spec-sheet register as the rest
                 of the site. Only the ones this product actually carries. */}

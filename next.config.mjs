@@ -56,22 +56,41 @@ function siteHost() {
  */
 const isDev = process.env.NODE_ENV === "development";
 
+/**
+ * Razorpay's hosted checkout.
+ *
+ * `checkout.razorpay.com` serves the script; it then loads an iframe from
+ * `api.razorpay.com` and talks to both, plus `lumberjack.razorpay.com` for its
+ * own telemetry. Listed explicitly rather than as `*.razorpay.com`: a wildcard
+ * would also admit anything else they ever host on that domain.
+ *
+ * Their checkout renders payment-method logos and bank icons from
+ * `cdn.razorpay.com`, hence the `img-src` entry below.
+ */
+const RAZORPAY_SCRIPT = "https://checkout.razorpay.com";
+const RAZORPAY_FRAME = "https://api.razorpay.com https://checkout.razorpay.com";
+const RAZORPAY_CONNECT =
+  "https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.razorpay.com";
+
 const CSP = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://challenges.cloudflare.com`,
-  "frame-src 'self' https://challenges.cloudflare.com",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://challenges.cloudflare.com ${RAZORPAY_SCRIPT}`,
+  `frame-src 'self' https://challenges.cloudflare.com ${RAZORPAY_FRAME}`,
   // `ws:` for the dev server's hot-reload socket, which is same-origin but not
   // http(s) — `connect-src 'self'` alone does not cover a WebSocket scheme.
-  `connect-src 'self' https://challenges.cloudflare.com${isDev ? " ws: wss:" : ""}`,
+  `connect-src 'self' https://challenges.cloudflare.com ${RAZORPAY_CONNECT}${isDev ? " ws: wss:" : ""}`,
   // Tailwind and next/font both emit inline styles; there is no nonce-free
   // alternative, and injected CSS is a far smaller problem than injected JS.
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   // `data:` and `blob:` are for next/image's own placeholder and optimiser.
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://cdn.razorpay.com",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  // Razorpay's checkout falls back to submitting a real form to their own
+  // domain when it cannot use its iframe — a bank's 3-D Secure page, mostly.
+  // Without this the payment silently dies at exactly that step.
+  `form-action 'self' ${RAZORPAY_FRAME}`,
   "frame-ancestors 'none'",
   ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");

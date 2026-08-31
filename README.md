@@ -182,10 +182,11 @@ contrast before introducing a new muted tone below ~40% opacity** — see
 `/checkout` collects an address and places an order; `/orders/<orderNumber>`
 shows it. Reasoning is in `DECISIONS.md` §26.
 
-**Payments and shipping are not built.** Cash on delivery works end to end and
-creates a `CONFIRMED` order. "Pay online" writes a real `PENDING_PAYMENT` order
-and charges nothing — a seam for a provider, not a working payment. Every order
-stores `shipping: 0`, because there is no rate table to compute one from.
+**Payments and delivery are built** — see the next section. Cash on delivery
+creates a `CONFIRMED` order; "Pay online" writes a `PENDING_PAYMENT` order and
+only Razorpay's webhook moves it on. Every order still stores `shipping: 0`:
+the pincode check quotes a courier rate for display, but what a customer is
+actually charged needs a policy that doesn't exist yet.
 
 **An order snapshots what was bought.** Title, price and image are copied at
 purchase time and never re-read from the catalogue. This is the opposite of the
@@ -212,6 +213,105 @@ npm run db:migrate    # creates the Order and OrderItem tables
 
 Without `DATABASE_URL` the checkout page says orders aren't available rather
 than collecting an address and failing on submit.
+
+## Payments and delivery
+
+Razorpay takes the money, Shiprocket moves the parcel. Both are optional: with
+neither configured the storefront runs exactly as it did before, offering cash
+on delivery and saying plainly that online payment isn't set up. Reasoning is
+in `DECISIONS.md` §27.
+
+### Razorpay
+
+```bash
+RAZORPAY_KEY_ID=rzp_test_xxxxxxxx
+RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxx
+RAZORPAY_WEBHOOK_SECRET=a-long-random-string-you-choose
+```
+
+Register `https://your-domain/api/webhooks/razorpay` under Dashboard →
+Settings → Webhooks, subscribed to `payment.captured`, `payment.failed` and
+`order.paid`, using the same secret.
+
+**The webhook is the source of truth, not the browser.** A UPI payment finishes
+inside a banking app; the tab may never come back. Nothing but
+`app/api/webhooks/razorpay/route.ts` ever writes `paidAt`, so a paid order is
+never lost to a closed tab — and a browser cannot claim a payment that did not
+happen. The signature is verified against the raw body before anything is
+parsed, read or written, and every event is recorded under a unique index so a
+redelivery changes nothing.
+
+**The order is written before the payment is created.** An unreachable Razorpay
+does not lose the order; the order page offers to start the payment again.
+
+Locally, Razorpay cannot reach `localhost` — tunnel it (ngrok, `npx untun`) and
+register the tunnel URL, or test payments will succeed on their side while the
+order sits at "awaiting payment" forever. That is the design working, not a bug.
+
+### Shiprocket
+
+```bash
+SHIPROCKET_EMAIL=api-user@yourdomain.com
+SHIPROCKET_PASSWORD=the-password-shown-once
+SHIPROCKET_PICKUP_LOCATION=Primary        # must already exist in their panel
+SHIPROCKET_PICKUP_PINCODE=110030
+SHIPROCKET_WEBHOOK_TOKEN=a-long-random-string-you-choose
+CRON_SECRET=a-long-random-string-you-choose
+SECRET_ENCRYPTION_KEY=base64-or-hex-of-32-random-bytes
+```
+
+**`SECRET_ENCRYPTION_KEY` encrypts the cached Shiprocket token at rest.** That
+token is a bearer credential for the whole account and has to be replayed
+verbatim, so unlike every other secret here it cannot be hashed — it is
+AES-256-GCM instead (`lib/crypto/secretBox.ts`). Generate one with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Leaving it unset is safe, not broken: the token cache is skipped rather than
+downgraded to plaintext, so the app just logs in again on each cold start.
+Rotating it costs one extra login — the row is a cache of something
+re-derivable, which is why encrypting it carries none of the usual key-rotation
+burden. DECISIONS §28 has the full reasoning, including what this does and does
+not protect against.
+
+Credentials are for an **API user** (Settings → API → Add New API User), not
+your main login. Register `https://your-domain/api/webhooks/courier` under
+Settings → API → Webhooks with the same token — their docs forbid the words
+"shiprocket", "sr", "kartrocket" and "kr" in a webhook URL, which is why the
+route is named after the job rather than the vendor.
+
+**Nothing in the buying path waits on the courier.** An order is written to
+Postgres and a push job is queued *in the same transaction*; the push itself
+happens later, from `/api/courier/sync` or the "Send to courier" button in
+`/admin/orders`. If Shiprocket is down for six hours, six hours of orders wait
+in the queue and no customer notices. Jobs back off and are never deleted, so a
+failing push is visible in the admin rather than gone.
+
+**The auth token is cached for nine days** (theirs last ten) in an
+`IntegrationToken` row, because a serverless cold start would otherwise log in
+every time and their login endpoint is rate limited.
+
+**Pincode checks are on the product page and in the bag**, before checkout —
+"will it reach me and when" is a question people ask before adding to a bag,
+not after typing an address. Responses are cached for six hours per route. A
+failed check says "couldn't check right now, you can still order"; it never
+says undeliverable, because an API timeout is not an answer.
+
+Schedule the sync on Vercel with a `vercel.json`:
+
+```json
+{ "crons": [{ "path": "/api/courier/sync", "schedule": "*/15 * * * *" }] }
+```
+
+It drains the push queue and re-reads tracking for shipments still in flight —
+a safety net under the tracking webhook, which is the primary path.
+
+```bash
+npm run db:migrate    # adds the payment and delivery columns, WebhookEvent,
+                      # OutboxJob and IntegrationToken
+```
 
 ## Security
 
@@ -274,6 +374,8 @@ Built so far:
 - **Homepage Sections** — Hero, Lookbook, Brand Statement, Product Rail, Trust
   Strip, Navigation, Footer (one per key of `HomepageContent`)
 - **Products** and **Categories** — table plus slide-in edit drawer
+- **Orders & Shipments** — every order, whether it's paid, where the parcel is,
+  and a "Send to courier" button for anything the queue hasn't managed yet
 
 Hero and Brand Statement share one `SectionEditor`. Photos & Images and Settings
 appear in the sidebar marked "Soon".
@@ -359,6 +461,46 @@ npm run content:import
 Set the build command to `npm run build` (it runs `prisma generate` first, and
 the generated client is gitignored) and run `npm run db:deploy` as part of
 releasing.
+
+### Schema changes go through migrations, never `db push`
+
+> [!IMPORTANT]
+> **`prisma db push` is not the deploy path and must not be used as one.**
+> It diffs your schema straight onto a database and writes no migration file.
+> A deploy runs `npm run db:deploy` (`prisma migrate deploy`), which applies
+> *files* — so a schema only ever pushed is a schema a fresh production
+> database knows nothing about. It comes up empty and every query fails at
+> runtime, with a green deploy.
+
+This project got that wrong once and `prisma/migrations/` did not exist at all;
+DECISIONS §28 records it and how the baseline was rebuilt and verified.
+
+Changing the schema:
+
+```bash
+npm run db:migrate    # prisma migrate dev — writes a migration AND applies it
+```
+
+Commit the generated folder under `prisma/migrations/` with the schema change
+in the same commit. `db push` is fine for throwaway experiments against a
+scratch database; anything that reaches a branch someone else pulls needs a
+migration.
+
+**Adopting an existing `db push`-ed database.** It has the tables but no
+`_prisma_migrations` bookkeeping, so `migrate deploy` will try to create what
+is already there. Tell Prisma the baseline is already applied — once, per
+database:
+
+```bash
+npx prisma migrate resolve --applied 20260831000939_init
+```
+
+Verify a migration reproduces the schema rather than assuming it. Against a
+database with it applied, this must print "No difference detected":
+
+```bash
+npx prisma migrate diff --from-config-datasource --to-schema=prisma/schema.prisma
+```
 
 ## Further reading
 

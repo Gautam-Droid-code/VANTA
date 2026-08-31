@@ -18,8 +18,14 @@ import { defineConfig } from "prisma/config";
  * still beats both files — which is how CI and one-off migrations against a
  * different database are run.
  */
-loadEnv({ path: ".env.local" });
-loadEnv();
+/**
+ * `quiet` because dotenv v17 announces what it loaded on **stdout**, and this
+ * config is loaded by every Prisma CLI command — including
+ * `prisma migrate diff --script`, whose entire stdout is meant to be SQL.
+ * Without it those banner lines land inside the generated migration file.
+ */
+loadEnv({ path: ".env.local", quiet: true });
+loadEnv({ quiet: true });
 
 /**
  * Migrations run against `DIRECT_DATABASE_URL` when it is set.

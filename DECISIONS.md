@@ -815,8 +815,15 @@ longer it waits.
 
 ## 21. Bag and wishlist
 
-Both are browser-local, both store ids and nothing else, and both share
-`lib/persistentStore.ts`.
+Both store ids and nothing else, and both share `lib/persistentStore.ts`.
+
+> **Superseded in one respect by §24.** This section originally opened "both are
+> browser-local", full stop. `localStorage` is still the primary store and still
+> the only one a signed-out visitor has — but a signed-in customer now also has
+> a server mirror (`BagLine`, `WishlistItem`) reconciled by
+> `components/AccountSync.tsx`, so a bag follows them to a new device. The
+> reasoning below about ids-only, `useSyncExternalStore` and stale-line pruning
+> is unchanged and applies to both halves.
 
 ### Ids only, never a copy of the product
 
@@ -855,12 +862,21 @@ will never show.
 - The wishlist heart sits inside the card's link to the product, so saving
   also navigated away. It stops the event.
 
-### What is deliberately inert
+### What is deliberately inert — mostly no longer inert
 
-Checkout says "coming soon" rather than looking like a button, and delivery
-says "calculated at checkout" rather than promising free shipping there is no
-rule for. A control that looks live and goes nowhere is worst at the exact
-moment someone has decided to buy.
+The rule this recorded is still the right one: *a control that looks live and
+goes nowhere is worst at the exact moment someone has decided to buy.* Two
+things followed from it, and only one still holds.
+
+- ~~Checkout says "coming soon" rather than looking like a button.~~
+  **Resolved by §26.** `/checkout` exists and works, so the honest thing is no
+  longer a disabled label — it is a real link, which is what
+  `components/BagContents.tsx` renders.
+- **Delivery still says "calculated at checkout"** rather than promising free
+  shipping there is no rule for. §27 added a pincode check that shows a
+  courier's quoted rate, but nothing charges it: every order still stores
+  `shipping: 0`. The claim on the page stays deliberately vague because it is
+  still the only honest thing to say.
 
 ## 22. Category groups
 
@@ -1350,7 +1366,386 @@ All three now declare `force-dynamic` explicitly. `/bag` stays static on
 purpose: it is a shell hydrated from `localStorage` with no per-user server
 data in it.
 
+## 27. Payments and courier delivery
+
+Two integrations, added in that order: Razorpay for taking money, Shiprocket
+for moving parcels. They share one rule, and almost everything below is
+downstream of it — **an outside service must never be able to stop an order.**
+A payment provider can be slow and a courier can be down, and neither is a
+reason to tell a customer who has decided to buy that they cannot.
+
+### The webhook is the source of truth for payment, not the browser
+
+Razorpay's checkout hands control back to the browser when a payment finishes,
+and the shortest possible implementation marks the order paid right there. It
+is also wrong, and wrong in a way that loses money silently.
+
+The browser is not a reliable narrator of a payment:
+
+- **It may never come back.** A UPI payment completes inside a banking app. The
+  customer's phone rings, they take the call, the tab is gone. The money moved
+  and nothing told us.
+- **The network may drop** between the bank confirming and our callback firing.
+- **The customer's machine makes that request**, which means the customer can
+  make it too, with arguments of their choosing. An order marked paid by a
+  request anyone can forge is not a paid order.
+
+So `app/api/webhooks/razorpay/route.ts` is the only thing in the codebase that
+writes `paidAt`. Razorpay delivers that event regardless of what the browser
+did. The client component after checkout does exactly one thing with a
+successful payment: refreshes the page and shows "confirming" until our own
+database says otherwise. It never claims "paid" on its own authority.
+
+Three properties make that safe:
+
+- **The signature is verified before anything else.** The raw body is read as
+  text — not `request.json()`, because the HMAC is over the bytes, and parsing
+  then re-serialising changes key order and whitespace so the signature never
+  matches. Nothing is parsed, read or written until it checks out. The endpoint
+  is public by nature; an unsigned request is a stranger, and a stranger must
+  not be able to cause so much as a row to be written.
+- **Idempotency comes from a unique index, not from reading first.** Every
+  delivery inserts into `WebhookEvent` under `@@unique([provider, eventKey])`
+  *before* any work happens. A duplicate raises P2002, returns 200, and changes
+  nothing. A check-then-act read would race a concurrent redelivery; the
+  database does not.
+- **The status update is conditional.** `updateMany` with
+  `status: "PENDING_PAYMENT"` in the WHERE clause makes it one atomic
+  statement, so `payment.captured` and `order.paid` can arrive for the same
+  payment and race, and exactly one of them updates a row.
+
+`payment.failed` deliberately does **not** cancel the order. A declined card is
+routinely followed by a successful one a minute later against the same Razorpay
+order; cancelling would destroy an order mid-purchase.
+
+The amount is re-checked against `Order.total` before confirming. It comes from
+an order we created server-side, so a mismatch should be impossible — but the
+cost of being wrong is shipping goods for less than they cost, and the check is
+one comparison.
+
+### The order is written first, the payment second
+
+`createOrder` commits our order and *then* asks Razorpay for theirs. That
+ordering is deliberate: a database failure can never leave a Razorpay order
+with no local counterpart — a payment nobody could reconcile — and the reverse
+cannot happen, because theirs is only created once ours has committed.
+
+The handoff is also best-effort. If Razorpay is unreachable in that moment the
+order still exists, and the order page offers to start the payment again
+(`app/orders/[orderNumber]/actions.ts`), reusing the existing Razorpay order if
+there is one. Creating a second would mean two payment surfaces for one debt,
+and a customer could pay both.
+
+### What could not be verified
+
+The Orders API and the webhook signature scheme were read from Razorpay's
+current documentation. The exact **nesting of webhook payloads**
+(`payload.payment.entity`) could not be — those pages 404 at the time of
+writing. Rather than hard-code a guess that would fail silently,
+`readWebhookFacts` reads the entity from the documented path *and* the obvious
+alternatives, and returns null — answering 422, not 200 — when it recognises
+nothing, so their retries keep an unparseable event visible instead of
+swallowing it. Confirm against a real test event before going live.
+
+### Shiprocket, built against fetched docs
+
+Their shapes were read from `apidocs.shiprocket.in` and the Postman collection
+it publishes, while writing the code, rather than recalled. The endpoints used
+are `auth/login`, `courier/serviceability/`, `orders/create/adhoc`,
+`courier/assign/awb` and `courier/track/awb/{awb}`.
+
+**The token is cached, not re-fetched.** Their helpsheet states a token is
+valid for 240 hours. Logging in per request would be wasteful and, against a
+rate-limited login endpoint, a way to get locked out during a traffic spike.
+The cache is three deep: a process-local variable, then an `IntegrationToken`
+row, then an actual login. The row exists because this deploys serverless —
+every cold start is a fresh process, and a process-local cache alone would mean
+a login on each one. A 401 invalidates and retries once, so a token revoked on
+their side becomes a transparent re-login rather than a week of failures.
+
+**Serviceability is cached in memory for six hours.** It changes on the order
+of days, and the same handful of pincodes get checked over and over — a product
+page, then the bag, then a reload. Deliberately not in Postgres: it is derived,
+disposable data whose worst failure is one extra API call, and a table would
+need a model, a migration and an eviction story for something a `Map` handles.
+
+### Nothing in the buying path waits on the courier
+
+Not one function in `lib/shipping/shiprocket.ts` throws. They all return a
+discriminated result and let the caller carry on. Pushing an order is queued
+through `lib/outbox.ts` — a row written **inside the same transaction as the
+order**, which no external queue could be — and performed later by
+`/api/courier/sync` or by an admin pressing a button. If Shiprocket is
+unreachable for six hours, six hours of orders sit in the queue and the
+customers who placed them never see a thing.
+
+The queue backs off (roughly 1m, 5m, 25m, 2h, 10h) and never deletes a job. A
+job that has failed twenty times is something staff should see in
+`/admin/orders`, not something that disappeared along with the order it was
+supposed to ship.
+
+The distinction between "not serviceable" and "we couldn't check" is enforced
+everywhere it appears. Telling someone their address is undeliverable because
+an API timed out ends the visit for no reason, so a failed check is `unknown`
+and the page says you can still order.
+
+### Delivery status: their words, our enum
+
+`courierStatus` stores the courier's own string, and the order page shows it
+verbatim — "Out for delivery" tells a customer more than any status of ours
+could. `courierStatusToOrderStatus` answers only the narrower question of
+whether one of *our* few boundaries has been crossed, and it never moves an
+order backwards: courier scans arrive late and out of order often enough that a
+DELIVERED order reverting to SHIPPED is a real risk, and it is impossible to
+explain to the person watching. An unrecognised status changes nothing.
+
+A courier may not cancel an order. "Canceled" from their side means the
+shipment was cancelled — a shipping problem for staff to resolve — while the
+order may still be owed, paid for, and about to be re-shipped.
+
+### Webhook *and* polling
+
+The tracking webhook is the primary path; `/api/courier/sync` polls as a safety
+net, scoped to orders that have an AWB and are not yet delivered. A webhook
+delivered while the site was mid-deploy would otherwise leave an order stuck on
+a status it left days ago. Polling only active shipments keeps a cheap safety
+net cheap — polling every order ever placed would grow linearly forever.
+
+Their webhook carries a shared token, not a signature, so it is authenticated
+but not tamper-evident. That shapes what it is permitted to do: it updates
+delivery state and nothing else. It cannot mark an order paid, change a total,
+or create anything. With `SHIPROCKET_WEBHOOK_TOKEN` unset it refuses everything
+rather than accepting everything.
+
+Their documentation also states that the webhook URL must not contain the
+keywords "shiprocket", "sr", "kartrocket" or "kr" — which is why the route is
+`/api/webhooks/courier`. Registering the obvious name would have been rejected
+on their side, and the symptom would have been tracking updates that simply
+never arrived.
+
+### Parcel dimensions come from configuration
+
+Shiprocket requires length, breadth, height and weight, and rejects zeroes.
+This catalogue records none of them — it is clothing, and there is no weight
+field anywhere in the content model. So they are environment variables: one
+conservative parcel for the whole catalogue. Inventing a per-order number would
+be worse, because their rate is charged on volumetric weight and a wrong guess
+becomes a wrong invoice.
+
+### Units, converted at the boundary
+
+Everything internal is paise. Razorpay also takes paise, so nothing is
+converted, and that is stated in a comment — a unit change between our total
+and theirs is exactly where a factor-of-100 bug lives. Shiprocket's API is in
+rupees, so `paiseToRupees` is applied once, in `lib/shipping/courierPush.ts`,
+at the edge.
+
+## 28. Fix-up pass: sign-out, migrations, and the token at rest
+
+No new features. Five defects found by reading the code that §24–§27 left
+behind, and what each one turned out to actually be.
+
+### The sign-out loop was a cookie path, and then it wasn't only that
+
+`ADMIN_COOKIE_OPTIONS` sets `path: "/admin"`. Both `logoutAction` and
+`middleware.ts` cleared the cookie by bare name, which defaults to path `/`. A
+browser matches a deletion on name **and** path, so the two never matched and
+the cookie survived every sign-out.
+
+The session row *was* revoked, so this was never an auth hole — nothing could be
+done with the surviving token. What it produced instead was an infinite
+redirect: `/admin/login` → middleware sees a validly-signed JWT → `/admin` → the
+dashboard layout checks the row, finds it revoked → `/admin/login` → forever.
+Measured before the fix with `curl -L` against a real revoked session: six hops
+and still going.
+
+The fix is not "delete it with the path in both places". That is the same
+mistake written twice more. The actual defect was that the set lived in
+`lib/session.ts` and the clears lived as bare literals in two other files —
+**two copies of a value that must agree, which is a thing that drifts.** So
+there is now an `ADMIN_COOKIE_CLEAR` beside `ADMIN_COOKIE_OPTIONS` whose path is
+*derived* from it rather than restated, and both callers use it.
+
+`lib/auth/customerSession.ts` was checked for the same mismatch and did not have
+one — that cookie is set at `/` and deleted at the default `/`, which agree. Its
+options were still lifted into a named constant, because they agreed by accident
+rather than by construction.
+
+#### Fixing the cookie did not close the loop
+
+Worth recording, because it is the part that would have been missed by treating
+this as a one-line fix. Sign-out was only *one* way into that state. Revoking a
+session from the Security page puts the revoked browser into exactly the same
+loop on its next navigation, with no cookie bug involved at all: a valid
+signature that middleware accepts, and a dead row that the layout rejects.
+
+The structural cause is §17/§25's accepted trade — middleware runs on the Edge
+and cannot check revocation. Neither middleware nor the layout can clear the
+cookie either: a Server Component has no response headers to write to.
+
+A Route Handler does. `app/admin/signed-out/route.ts` clears the cookie and
+redirects to the login form, and the layout now sends unauthenticated requests
+there instead of straight to `/admin/login`. Middleware waves it through (the
+signature is still valid), the cookie goes, and the redirect that follows finds
+nothing and lands on the form. Verified: six-plus hops → two hops, HTTP 200, on
+the login form, with `Set-Cookie: …; Path=/admin` observed on the way past.
+
+Anything that adds a new redirect into `/admin` should be checked against this
+loop.
+
+### There were no migrations at all
+
+`prisma/migrations/` did not exist. The schema and the generated client were
+present, so `prisma db push` had been used throughout — which is fine for
+iterating locally and useless for deploying, because `npm run db:deploy`
+(`prisma migrate deploy`) applies migration files and there were none. A fresh
+production database would have come up **empty**, and the failure would have
+surfaced as every query erroring at runtime rather than as a failed deploy.
+
+A baseline now exists, generated by `prisma migrate dev` against a scratch
+database rather than hand-written, and verified three ways:
+
+- It applied cleanly to a genuinely empty database via `npm run db:deploy`.
+- `prisma migrate diff --from-config-datasource --to-schema` reports **"No
+  difference detected"** against the resulting database — so it reproduces the
+  schema exactly, not approximately.
+- Counted by hand against `schema.prisma`: 14 models → 14 `CREATE TABLE`, both
+  enums, and 24 indexes (19 `@@index` + 1 `@@unique` + 4 field-level `@unique`).
+
+`db push` is now explicitly not the deploy path, and the README says so.
+
+One operational note: anyone who already has a `db push`-ed database will have
+the tables but no `_prisma_migrations` row, so `migrate deploy` will try to
+create what is already there. That is what
+`prisma migrate resolve --applied <migration>` is for — it is a one-time
+bookkeeping step, not a schema change.
+
+### The Shiprocket token: encrypted, and why that was not a close call
+
+`IntegrationToken.token` held a bearer token with full access to the Shiprocket
+account — read every customer's name, address and phone, create and cancel
+shipments, spend money — in plaintext, in a codebase that hashes every other
+secret it stores. Admin passwords go through scrypt; customer session tokens and
+Turnstile tokens are kept as SHA-256 digests.
+
+A digest is not available here: the token has to be replayed to Shiprocket
+verbatim, so the value itself must survive. That leaves encryption at rest, and
+the usual objection to encrypting a column is key management — rotation means
+re-encrypting existing rows, and losing the key means losing data.
+
+**Neither applies here, and that is the whole argument.** This row is a *cache
+of a re-derivable value*. A missing key, a rotated key, a corrupt payload and a
+tampered ciphertext all resolve identically: throw the row away and log in
+again. One extra login, no re-encryption pass, no key versioning, no data loss.
+So this is a complete design rather than the first half of one — which is the
+bar that would have justified leaving it alone instead.
+
+`lib/crypto/secretBox.ts` does AES-256-GCM with a fresh 96-bit IV per
+encryption, storing `v1.iv.tag.ciphertext`. The column is renamed
+`tokenCiphertext`, because a column called `token` holding ciphertext invites
+the next person to log it or compare it.
+
+Two decisions inside it worth keeping:
+
+- **No plaintext fallback.** With `SECRET_ENCRYPTION_KEY` unset, `encryptSecret`
+  returns null and the caller simply *does not write the row* — the process-local
+  memo still works, so the cost is one login per cold start. Writing the
+  plaintext instead would be a silent downgrade of the exact property the module
+  exists to provide.
+- **No passphrase support.** The key must be exactly 32 bytes, base64 or hex.
+  Stretching a passphrase with a fixed salt looks like key derivation while
+  providing very little of it, and an operator who believes they have a strong
+  key when they do not is worse off than one who is told to generate a real one.
+
+What this buys, stated honestly: it defends against **database-only**
+compromise — a leaked backup, an over-broad read grant, a dump pulled through an
+injection. It does **not** defend against an attacker holding the environment,
+who would have `SHIPROCKET_PASSWORD` and could just log in. The two leak through
+different channels; closing the more common one is the point.
+
+### Turnstile burned tokens it never verified
+
+`verifyTurnstile` inserted the single-use marker **before** calling Cloudflare.
+Any outcome burned the token, including the ones where Cloudflare never
+answered — so a timeout or a dropped connection meant the visitor's immediate
+retry, same widget and same token, came back `token-reused`. A network wobble on
+Cloudflare's side became a dead form on ours.
+
+The obvious repair — record only *after* a successful verification — is worse,
+because it opens the window the marker exists to close: two requests carrying
+the same token both reach siteverify before either has recorded anything.
+
+So it is two phases. The claim still happens first and still relies on the
+unique primary key to be atomic, and it is **released only when no verdict was
+received** (transport failure, timeout, 5xx). A definite "no" from Cloudflare
+keeps the claim, because that token is spent either way.
+
+Verified with a harness that stubbed `fetch` to produce each outcome on demand:
+a timeout releases the token and the same token then succeeds; a 5xx releases
+it; a rejection keeps it burned; a redeemed token is refused; and of two
+concurrent verifications of one token, exactly one succeeds. Re-run with the
+release calls commented out, precisely those three release-dependent checks
+fail — so the harness discriminates rather than passing vacuously.
+
+### Two small things
+
+- The admin layout claimed "the storefront is the opposite case and stays static
+  on purpose". It has not been true since the root layout started calling
+  `getCustomer()` — `cookies()` is a request-time API. The comment now says so,
+  and keeps the sharp edge: the coupling is *conditional*, because with no
+  `DATABASE_URL` that function returns before it reaches `cookies()` and the
+  same code prerenders. §26 records how that silently made three routes static.
+  A route's rendering mode should be declared, not inferred from whether some
+  function happened to touch a request API.
+- Deleted an empty junk directory tree at
+  `app/admin/(dashboard)/app/admin/(dashboard)/pages`, untracked and containing
+  nothing.
+
 ## Known issues / follow-ups
+
+Every entry below was re-checked against the code on 2026-08-31. Resolved items
+are struck through with a pointer to the section that resolved them rather than
+deleted, so the history of what was once wrong stays readable. **If you are
+picking this project up, this list is meant to be trustworthy — if you find an
+entry that no longer matches the code, fix the entry in the same change.**
+
+### Blocking a real launch
+
+- **The policy pages are placeholder text.** `/returns`, `/shipping`, `/terms`
+  and `/privacy` exist and are internally consistent with what the storefront
+  claims, but none of it has been reviewed, and the registered address, GST
+  number, grievance officer and retention periods are invented. Each page says
+  so in a notice at the top. Replace the copy in `data/policies.ts` and remove
+  the notice before taking payments.
+- **WhatsApp support link is a placeholder** — `https://wa.me/919000000000`, in
+  both `data/homepage.ts` and the published `.content/site.json`. Changing the
+  seed alone is not enough once content has been published; it has to be edited
+  in `/admin` too.
+- **Uploaded images still need a writable disk.** `lib/mediaStore.ts` writes to
+  `.content/uploads/`. Postgres took the *content document* off the filesystem
+  (§24), which is why the rest of the read-only-serverless problem went away —
+  but photo uploads did not move with it. On Vercel the upload succeeds against
+  an ephemeral filesystem and the file is gone on the next deploy. This is the
+  single remaining blocker for a complete Vercel deploy, and the fix is a
+  `MediaStore` adapter for object storage (S3, R2, Vercel Blob) — the interface
+  already exists, nothing else changes.
+- **No refund path.** Razorpay takes money (§27) but nothing gives it back. A
+  refund today is a manual action in their dashboard, and `REFUNDED` is a status
+  nothing sets. Needs their Refunds API, a reason, and a decision about partial
+  refunds that the order model does not yet express.
+- **No order confirmation email.** Nothing is sent when an order is placed. The
+  order page says so and tells the customer to keep the page rather than
+  promising a message that will never arrive — but a guest who loses the signed
+  link has no way back to their order. §26 explains why that link is signed
+  rather than expiring.
+- **Razorpay's webhook payload shape is unverified.** §27: the Orders API and
+  the signature scheme were read from their live docs, but the pages describing
+  payload nesting 404'd. `readWebhookFacts` reads several plausible paths and
+  answers 422 rather than 200 on anything it cannot parse, so a mismatch is
+  loud rather than silent — but it has not been tested against a real event.
+  Send one test webhook before going live.
+
+### Correctness and security
 
 - **No two-factor on the admin.** Deliberately not half-built. TOTP itself is
   small, but the admin identity is a pair of environment variables rather than a
@@ -1362,83 +1757,107 @@ data in it.
   has lost their phone — that last part being the one usually skipped, and the
   only reason the rest of it matters. Worth doing as its own change, with the
   admin becoming a real row first.
+- **The rate-limit key is only as trustworthy as the proxy.** It comes from
+  `x-forwarded-for` / `x-real-ip`, which anyone can send unless the deployment
+  guarantees a trusted proxy overwrites them. Vercel does; another host may not.
+  Moving the counter into Postgres (§25) did not make the identity behind it
+  more trustworthy — see §17.
+- **Middleware cannot see a revoked session, and that is structural.** It runs
+  on the Edge and must not open a database connection, so it checks the token's
+  signature only. §28 records the redirect loop this caused and the
+  `/admin/signed-out` route that breaks it. The residual cost is that a revoked
+  browser takes one extra hop to reach the login form. Anything that adds a new
+  redirect into `/admin` should be checked against that loop.
+- **`SECRET_ENCRYPTION_KEY` is optional, and unset means no token cache.** §28.
+  Safe by default — it never falls back to writing a plaintext credential — but
+  a deployment that forgets it logs in to Shiprocket on every cold start, which
+  their rate limiter will eventually notice. Set it in production.
 
-- **The policy pages are placeholder text.** `/returns`, `/shipping`, `/terms`
-  and `/privacy` exist and are internally consistent with what the storefront
-  claims, but none of it has been reviewed, and the registered address, GST
-  number, grievance officer and retention periods are invented. Each page says
-  so in a notice at the top. Replace the copy and remove the notice before
-  taking payments.
+### Content and data
 
-- **Product imagery is doubled up.** There are only 5 photos in the Stitch
-  export (3 model shots, 2 product shots) but the rail needs 5 cards, so three
-  model shots stand in as product imagery. Swap in real product photography via
-  `data/products.ts` — no component changes needed.
-- ~~Images are unoptimised PNGs~~ — **resolved.** Converted to WebP at rest;
-  see §12. Served assets went 6.39 MB → 0.23 MB.
-- **LCP is still render-delay bound — the server/client refactor did not fix
-  it.** §13 moved all seven section shells to server components and the hero
-  image out of any client tree. Render delay medians moved 2254ms (n=1
-  baseline) → 1727ms / 1902ms across two 5-run batches, but individual runs
-  span 1685–2442ms, so the baseline sits *inside* the post-refactor range and
-  **the improvement is not demonstrated.** LCP and Performance stayed flat
-  within noise.
+- **Product imagery is heavily reused.** There are 5 photos in `public/images`
+  (3 model shots, 2 product shots) serving a catalogue of 45 products, so most
+  products share an image with several others. Swap in real photography through
+  `/admin` → Photos, or `data/products.ts` for the seed — no component changes
+  needed.
+- **Search matches names, categories and descriptions, not attributes.** There
+  is no colour, size or material field on a product, so "black" only finds the
+  handful whose alt text happens to say it. The generated catalogue describes
+  shape ("technical shell jacket") rather than colour. Better alt text — or real
+  attribute fields — is what makes those searches work.
+- **Shipping is quoted but never charged.** Every order stores `shipping: 0`.
+  The pincode check (§27) shows Shiprocket's rate for the cheapest courier, but
+  that number is display-only. Charging it needs a policy (free over a
+  threshold? flat rate? pass-through?) and, once there is one, it has to be
+  priced server-side in `priceBag` like everything else — never taken from the
+  browser.
+
+### Performance
+
+- **LCP is still render-delay bound — the §13 server/client refactor did not fix
+  it.** Render delay medians moved 2254ms (n=1 baseline) → 1727ms / 1902ms
+  across two 5-run batches, but individual runs span 1685–2442ms, so the
+  baseline sits *inside* the post-refactor range and **the improvement is not
+  demonstrated.** LCP and Performance stayed flat within noise.
 
   The reason the win didn't materialise: client JS only went 183.0 → 181.1 KB.
-  Framer Motion is still imported by every reveal leaf, so the library — the
-  bulk of the bundle and of the hydration cost — never left the critical path.
+  Framer Motion is still imported by `components/ui/Reveal.tsx` and so by every
+  reveal leaf, so the library — the bulk of the bundle and of the hydration cost
+  — never left the critical path. Scroll reveal has since been removed from the
+  listing grids, which reduces how many pages pay for it but not the homepage.
 
   **The remaining lever is dropping Framer Motion from the scroll-reveal path**,
   replacing `Reveal`/`RevealGroup`/`RevealItem` with an IntersectionObserver +
   CSS-class approach (or `animation-timeline: view()` where supported). That
-  would let most leaves stop importing the library entirely, leaving it only for
-  the genuinely interactive pieces (`Navbar`, `CategoryRow`, `LookbookRail`,
-  `PillButton`). Only attempt this with a **committed before/after baseline** so
-  the result is measurable — see the noise note below.
+  would leave the library to the genuinely interactive pieces (`Navbar`,
+  `CategoryRow`, `LookbookRail`, `PillButton`, `AddToBagButton`, `SaveButton`).
+  Only attempt this with a **committed before/after baseline**.
 - **Lighthouse scores here are very noisy.** Four 5-run batches across two
   builds gave Performance medians of 96, 94, 95, 94 with individual runs
   spanning 87–99 and LCP 2.27–3.92s. Treat anything under ~4 points as noise,
   always compare medians of ≥5 runs, and **commit before starting perf work** so
-  a true before/after baseline can be measured on demand — the lack of one is
-  why the §13 refactor's effect can't be quantified.
-- **Admin rate limiting is in-memory and resets on restart** (§17). Move it to
-  Vercel KV / Redis when persistence lands, or brute-force protection is
-  effectively absent in a multi-instance deployment.
-- **Bag state is a local stub.** `components/BagProvider.tsx` holds an in-memory
-  count seeded to 2 so the navbar badge has a real source. It does not persist
-  and is not a cart. Replace the internals with a real cart API; the `useBag()`
-  consumer contract can stay.
-- **WhatsApp support link is a placeholder** (`https://wa.me/919000000000` in
-  `data/homepage.ts`). Needs the real business number before launch.
-- **The hero renders two `<h1>` elements** — one for the mobile overlay, one for
-  desktop — toggled with `hidden`/`lg:hidden`. Only one is ever in the
-  accessibility tree at a time since `display: none` removes the other, so this
-  is not an a11y defect, but it is duplication worth collapsing if the two
+  a true before/after baseline can be measured on demand.
+
+### Cosmetic
+
+- **The hero renders two `<h1>` elements** — `components/Hero.tsx` renders
+  `HeroHeadline` (which is `as="h1"`) twice, once for the mobile overlay and
+  once for desktop, toggled with `lg:hidden` / `hidden lg:block`. Only one is
+  ever in the accessibility tree since `display: none` removes the other, so
+  this is not an a11y defect, but it is duplication worth collapsing if the two
   layouts ever converge.
-- **Most routes now exist, but not all.** Measured: 15 of the 24 distinct
-  `href`s in the content resolve, up from 1. Still missing: `/bag` and
-  `/wishlist` (no cart yet), the footer's `/privacy`, `/returns`, `/shipping`
-  and `/terms`, and three nav links pointing at categories that do not exist —
-  `/collections/series-026`.
-  `/collections/series-026` is the remaining one: it is a drop rather than a
-  category, so it needs either a category, a tag, or a repointed link.
-- **Search matches names, categories and descriptions, not attributes.** There
-  is no colour, size or material field on a product, so "black" only finds the
-  handful of products whose alt text happens to say it. The generated catalogue
-  describes shape ("technical shell jacket") rather than colour. Better alt text
-  — or real attribute fields — is what makes those searches work.
-- **No payments.** Orders exist and COD works end to end, but "Pay online"
-  only records a `PENDING_PAYMENT` order — there is no provider, no capture and
-  no refund path. §26.
-- **No shipping calculation.** Every order stores `shipping: 0`. There is no
-  rate table and no pincode serviceability check, so nothing is charged and the
-  summary says "calculated later" rather than promising free delivery. §26.
-- **No order confirmation email.** Nothing is sent when an order is placed. The
-  order page says so and tells the customer to keep the page, rather than
-  promising a message that will never arrive — but a guest who loses the link
-  currently has no way back to their order. A mailer is the fix; §26 explains
-  why the link is signed rather than expiring.
-- **Bag and wishlist are browser-local.** They live in `localStorage`, so they
-  do not follow a shopper between devices and vanish if site data is cleared.
-  That is the right shape while there are no accounts; it is the wrong shape
-  the moment there are.
+
+### Resolved
+
+- ~~Images are unoptimised PNGs~~ — **resolved**, §12. Converted to WebP at
+  rest; served assets went 6.39 MB → 0.23 MB.
+- ~~Admin rate limiting is in-memory and resets on restart~~ — **resolved**,
+  §25. `lib/rateLimit.ts` is backed by Postgres, keyed by IP and identifier
+  separately, with exponential backoff. The spoofable-header caveat above is the
+  part that survived.
+- ~~Bag state is a local stub: `BagProvider` holds an in-memory count seeded to
+  2~~ — **resolved**, §21 and §24. It is a real bag in `localStorage` via
+  `useSyncExternalStore`, mirrored to Postgres for signed-in customers.
+- ~~Bag and wishlist are browser-local, so they do not follow a shopper between
+  devices~~ — **resolved**, §24. `localStorage` remains the store for signed-out
+  visitors, which is correct; signed-in customers get `BagLine` / `WishlistItem`
+  rows reconciled by `components/AccountSync.tsx`.
+- ~~No checkout — the bag's checkout control is deliberately inert~~ —
+  **resolved**, §26. `/checkout` and `/orders/[orderNumber]` are real, COD works
+  end to end, and §27 added online payment.
+- ~~`/bag` and `/wishlist` do not exist~~ — **resolved**, §21. Both are real
+  pages.
+- ~~The footer's `/privacy`, `/returns`, `/shipping` and `/terms` 404~~ —
+  **resolved**, §23-era work. All four render from `data/policies.ts` through
+  `app/(policies)/[slug]`. The *content* is still placeholder — see above.
+- ~~Nav links point at `/collections/series-026`, which does not exist~~ —
+  **resolved.** Series 026 is a drop, not a category, so the link was repointed
+  at the piece itself (`/products/series-026-field-parka`) rather than a
+  category being invented for it.
+- ~~There are no migrations; `prisma db push` was used, so `npm run db:deploy`
+  has nothing to apply~~ — **resolved**, §28. `prisma/migrations/` now holds a
+  baseline verified to apply cleanly to an empty database with zero drift.
+- ~~The Shiprocket bearer token is stored in plaintext~~ — **resolved**, §28.
+  Encrypted at rest with AES-256-GCM under `SECRET_ENCRYPTION_KEY`.
+- ~~Signing out of the admin leaves the cookie in place and loops~~ —
+  **resolved**, §28.

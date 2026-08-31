@@ -101,3 +101,31 @@ export const ADMIN_COOKIE_OPTIONS = {
   path: "/admin",
   maxAge: SESSION_MAX_AGE,
 } as const;
+
+/**
+ * How to *clear* that cookie — and the only correct way to do it.
+ *
+ * A browser matches a deletion against name **and path**. `delete("name")`
+ * defaults to path `/`, which does not match a cookie set at `/admin`, so the
+ * cookie survives and the browser keeps sending it.
+ *
+ * That produced a genuine infinite redirect loop on sign-out: the row was
+ * revoked but the JWT was still in the browser, so middleware saw a valid
+ * signature and sent `/admin/login` → `/admin`, the dashboard layout checked
+ * the row and sent `/admin` → `/admin/login`, forever. Not an auth hole — the
+ * revoked row meant nothing could be done — but the admin was unusable until
+ * the cookie was cleared by hand.
+ *
+ * The real defect was that the set lived here and the clears lived as bare
+ * literals in `middleware.ts` and `logoutAction`. Two copies of a value that
+ * must agree will drift; that is what happened, and repeating the fix as
+ * another matching literal would let it happen again. So the path is derived
+ * from the options above rather than restated, and both callers use this.
+ *
+ * Shaped as an object with `name` because that is the form both
+ * `cookies().delete()` and `NextResponse.cookies.delete()` accept.
+ */
+export const ADMIN_COOKIE_CLEAR = {
+  name: SESSION_COOKIE,
+  path: ADMIN_COOKIE_OPTIONS.path,
+} as const;

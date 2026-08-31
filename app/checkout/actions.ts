@@ -11,6 +11,8 @@ import {
 } from "@/lib/checkoutSchema";
 import { fieldErrors } from "@/lib/auth/accountSchema";
 import { generateOrderNumber, guestOrderPath, priceBag } from "@/lib/orders";
+import { COURIER_PUSH, enqueue } from "@/lib/outbox";
+import { createRazorpayOrder, isRazorpayConfigured } from "@/lib/payments/razorpay";
 
 /**
  * Placing an order.
@@ -128,15 +130,17 @@ export async function createOrder(
   if (priced.lines.length === 0) return { errors: { form: "Your bag is empty." } };
 
   /**
-   * ONLINE stops at PENDING_PAYMENT.
+   * ONLINE stops at PENDING_PAYMENT, and only the webhook moves it on.
    *
-   * There is no payment provider yet. The order is written so the seam is real
-   * — a provider slots in by capturing against an existing order and moving it
-   * to CONFIRMED — rather than the flow pretending to take money it cannot.
+   * Nothing in this action — and nothing the browser does after it — marks an
+   * order paid. Razorpay's webhook does, because it is the only participant
+   * that hears about the payment whether or not the customer's tab survives.
+   * See `app/api/webhooks/razorpay/route.ts`.
    */
   const status = input.paymentMethod === "COD" ? "CONFIRMED" : "PENDING_PAYMENT";
 
   let orderNumber = "";
+  let orderId = "";
 
   /**
    * Retried on a duplicate order number.
@@ -150,7 +154,7 @@ export async function createOrder(
     orderNumber = await generateOrderNumber();
     try {
       await prisma.$transaction(async (tx) => {
-        await tx.order.create({
+        const created = await tx.order.create({
           data: {
             orderNumber,
             customerId: customer?.id ?? null,
@@ -184,6 +188,22 @@ export async function createOrder(
             },
           },
         });
+        orderId = created.id;
+
+        /**
+         * A COD order is confirmed the moment it is written, so it can be
+         * handed to the courier immediately — but the handing over is queued,
+         * inside this transaction, not performed here.
+         *
+         * If it were performed here, Shiprocket being slow would make checkout
+         * slow, and Shiprocket being down would fail the order. Neither is
+         * acceptable: the customer has decided to buy, and a courier's
+         * availability has nothing to do with whether we accept that. The job
+         * commits with the order or not at all. See `lib/outbox.ts`.
+         */
+        if (status === "CONFIRMED") {
+          await enqueue(COURIER_PUSH, created.id, tx);
+        }
 
         /**
          * The server-side bag mirror is cleared inside the transaction.
@@ -227,6 +247,35 @@ export async function createOrder(
         (error as { code?: unknown }).code === "P2002";
       if (isDuplicate && attempt < 4) continue;
       return { errors: { form: "Couldn’t place your order. Please try again." } };
+    }
+  }
+
+  /**
+   * The payment handoff, attempted after the order exists.
+   *
+   * Order matters. Ours is written first and theirs second, so a database
+   * failure can never leave a Razorpay order with no local counterpart —
+   * a payment nobody could reconcile. The reverse (theirs orphaned) cannot
+   * happen at all, because theirs is only created once ours has committed.
+   *
+   * And it is best-effort. If Razorpay is unreachable right now the order is
+   * still placed, still visible, and the order page offers to start the
+   * payment again — `app/orders/[orderNumber]/actions.ts`. Losing the sale
+   * because a third party had a bad thirty seconds is a far worse outcome than
+   * a customer pressing "Pay now" once more.
+   */
+  if (input.paymentMethod === "ONLINE" && orderId && isRazorpayConfigured()) {
+    const result = await createRazorpayOrder({
+      amountPaise: priced.total,
+      receipt: orderNumber,
+      notes: { orderNumber },
+    });
+    if (result.ok) {
+      await prisma.order
+        .update({ where: { id: orderId }, data: { razorpayOrderId: result.value.id } })
+        .catch(() => {});
+    } else {
+      console.error(`[razorpay] could not create order for ${orderNumber}: ${result.error}`);
     }
   }
 

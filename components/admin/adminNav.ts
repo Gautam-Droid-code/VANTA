@@ -7,6 +7,7 @@ import {
   ProductsIcon,
   SettingsIcon,
   ShieldIcon,
+  ShipmentsIcon,
 } from "./AdminIcons";
 
 /**
@@ -76,6 +77,7 @@ export const adminNav: AdminNavItem[] = [
   { label: "Products", href: "/admin/products", icon: ProductsIcon, ready: true },
   { label: "Categories", href: "/admin/categories", icon: CategoriesIcon, ready: true },
   { label: "Photos & Images", href: "/admin/photos", icon: PhotosIcon, ready: true },
+  { label: "Orders & Shipments", href: "/admin/orders", icon: ShipmentsIcon, ready: true },
   { label: "Security", href: "/admin/security", icon: ShieldIcon, ready: true },
   { label: "Settings", href: "/admin/settings", icon: SettingsIcon },
 ];

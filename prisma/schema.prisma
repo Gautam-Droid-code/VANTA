@@ -310,7 +310,7 @@ model Order {
   shipCity    String
   shipState   String
   shipPincode String
-  shipCountry String @default("IN")
+  shipCountry String  @default("IN")
 
   /// All in paise. `subtotal` is the sum of the lines; the rest are zero until
   /// shipping and discounts exist, and are present now so adding them later is
@@ -323,8 +323,31 @@ model Order {
   /// Free-text note from the customer at checkout.
   note String?
 
-  placedAt  DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  /// --- Payment (Razorpay) -------------------------------------------------
+  /// The provider's order id, created before handing off to their checkout.
+  /// Nullable: a COD order never has one.
+  razorpayOrderId   String?   @unique
+  /// Set only by the webhook, never by the browser callback. See §27.
+  razorpayPaymentId String?
+  paidAt            DateTime?
+
+  /// --- Delivery (Shiprocket) ----------------------------------------------
+  /// Their internal ids, kept so a re-push can update rather than duplicate.
+  shiprocketOrderId    String?
+  shiprocketShipmentId String?
+  awb                  String?
+  courierName          String?
+  trackingUrl          String?
+  /// Where the courier says it is, in their words. Displayed, never branched on.
+  courierStatus        String?
+  /// Null until a push succeeds. Non-null with no awb means it was accepted
+  /// but not yet assigned a courier.
+  pushedToCourierAt    DateTime?
+  /// Why the last push failed, for the admin to act on. Cleared on success.
+  courierError         String?
+
+  placedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   items OrderItem[]
 
@@ -377,4 +400,89 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+}
+
+/// Webhook deliveries already handled, so replaying one changes nothing.
+///
+/// Providers retry aggressively and at-least-once delivery is the norm — a
+/// captured payment can arrive three times. Without this, the third delivery
+/// would re-run whatever the first did.
+///
+/// Keyed on the provider's own event id where they send one, and on a digest
+/// of the raw body where they do not. The unique index is the actual guard:
+/// two deliveries racing each other both try to insert, and exactly one wins.
+model WebhookEvent {
+  id String @id @default(cuid())
+
+  /// "razorpay" | "shiprocket"
+  provider  String
+  /// Provider event id, or a sha256 of the body when they send none.
+  eventKey  String
+  /// The event name, for reading the log later. Never branched on for identity.
+  eventType String?
+
+  receivedAt DateTime @default(now())
+
+  @@unique([provider, eventKey])
+  @@index([receivedAt])
+}
+
+/// Work that must happen but must not block the customer.
+///
+/// Pushing an order to a courier is the case this exists for: Shiprocket being
+/// slow or down must never stop an order being placed. The push is enqueued
+/// inside the order transaction and drained separately, so the checkout path
+/// depends on nothing external.
+model OutboxJob {
+  id String @id @default(cuid())
+
+  /// "shiprocket.push"
+  kind    String
+  /// The order this is about. Not a relation: a job outliving its order should
+  /// fail on its own terms rather than vanish.
+  orderId String
+
+  attempts    Int       @default(0)
+  /// Exponential backoff — the job is invisible to the drainer until then.
+  runAfter    DateTime  @default(now())
+  lastError   String?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([completedAt, runAfter])
+  @@index([orderId])
+}
+
+/// A cached bearer token for a third-party API.
+///
+/// Exists because Shiprocket's auth tokens last 240 hours (10 days) and their
+/// login endpoint is rate-limited and slow. Logging in per request would be
+/// both wasteful and, in practice, a way to get locked out.
+///
+/// In the database rather than in a module-level variable because this app is
+/// deployed serverless: every cold start is a fresh process, and a process-local
+/// cache would mean a login on each one. Keyed by provider, one row per
+/// integration.
+model IntegrationToken {
+  /// "shiprocket". The primary key — there is exactly one token per provider.
+  provider String @id
+
+  /// The bearer token, **encrypted** with AES-256-GCM — never plaintext.
+  ///
+  /// Named for what it holds so the invariant survives contact with the next
+  /// reader: a column called `token` containing ciphertext invites somebody to
+  /// log it, compare it, or "fix" it. Format and reasoning are in
+  /// `lib/crypto/secretBox.ts`; the short version is that this is a bearer
+  /// credential for the whole Shiprocket account, it has to be replayed so a
+  /// digest is no use, and every other secret this codebase stores is hashed.
+  ///
+  /// Nothing is written here at all when SECRET_ENCRYPTION_KEY is unset. The
+  /// cache is simply skipped rather than downgraded to plaintext.
+  tokenCiphertext String
+  /// When it stops being usable. Refreshed before this, never after.
+  expiresAt       DateTime
+
+  updatedAt DateTime @updatedAt
 }

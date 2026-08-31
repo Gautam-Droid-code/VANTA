@@ -68,6 +68,16 @@ export const ShieldIcon = (p: IconProps) => (
   </svg>
 );
 
+/** A delivery van — orders on their way out. */
+export const ShipmentsIcon = (p: IconProps) => (
+  <svg {...base} {...p}>
+    <path d="M3 6.5h10.5v9H3z" />
+    <path d="M13.5 9.5H17l3 3v3h-6.5z" />
+    <circle cx="7" cy="17.5" r="1.6" />
+    <circle cx="17" cy="17.5" r="1.6" />
+  </svg>
+);
+
 export const SettingsIcon = (p: IconProps) => (
   <svg {...base} {...p}>
     <circle cx="12" cy="12" r="3" />

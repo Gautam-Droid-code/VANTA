@@ -7,6 +7,7 @@ import { useEffect, useMemo } from "react";
 import { useBag } from "@/components/BagProvider";
 import { backdropClass } from "@/lib/backdrops";
 import { formatINR, cn } from "@/lib/format";
+import { PincodeCheck } from "@/components/shipping/PincodeCheck";
 
 /**
  * The bag's lines, resolved against the live catalogue.
@@ -208,6 +209,11 @@ export function BagContents({ catalogue }: { catalogue: Product[] }) {
           <span className="text-label font-bold uppercase text-bone">Subtotal</span>
           <span className="text-lg tabular-nums text-bone">{formatINR(subtotal)}</span>
         </div>
+
+        {/* The second place this is asked, and the last one before checkout.
+            Someone who checked on a product page has it filled in already —
+            the pincode is remembered in the browser. */}
+        <PincodeCheck className="mb-4" valueRupees={subtotal} />
 
         {allCod && (
           <p className="mb-4 border border-bone/20 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-bone/50">

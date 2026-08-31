@@ -34,9 +34,13 @@ export interface SavedAddress {
 export function CheckoutForm({
   addresses,
   signedInEmail,
+  onlinePaymentEnabled,
 }: {
   addresses: SavedAddress[];
   signedInEmail: string | null;
+  /** Whether Razorpay keys are configured. Decided on the server; the browser
+   *  has no way to know, and must not be told anything more than yes or no. */
+  onlinePaymentEnabled: boolean;
 }) {
   const { lines } = useBag();
   const [state, formAction] = useActionState(createOrder, emptyCheckoutState);
@@ -229,17 +233,22 @@ export function CheckoutForm({
         </label>
 
         {/*
-          ONLINE is offered but honest about what it does. There is no payment
-          provider yet, so it records the order as awaiting payment and says so
-          — rather than a "Pay now" button that leads nowhere, which is worst at
-          the exact moment someone has decided to buy.
+          Offered either way, and honest either way. When Razorpay isn't
+          configured the option still records the order as awaiting payment and
+          says so, rather than a "Pay now" button that leads nowhere — which is
+          worst at the exact moment someone has decided to buy.
+
+          The order is placed first and paid second in both cases. Payment
+          happens on the order page, not here, so an abandoned payment leaves a
+          real order we can follow up rather than nothing at all.
         */}
         <label className="flex cursor-pointer items-start gap-3 border border-ink-line px-4 py-3">
           <input type="radio" name="paymentMethod" value="ONLINE" className="mt-1 accent-bone" />
           <span className="text-sm text-bone/70">
             <span className="block text-bone">Pay online</span>
-            Card and UPI aren’t connected yet. Your order is saved and held until
-            payment is set up — nothing is charged.
+            {onlinePaymentEnabled
+              ? "Card, UPI, netbanking or wallet. You’ll pay on the next screen."
+              : "Card and UPI aren’t connected yet. Your order is saved and held until payment is set up — nothing is charged."}
           </span>
         </label>
       </section>

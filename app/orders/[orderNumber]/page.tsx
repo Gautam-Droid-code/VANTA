@@ -11,6 +11,8 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { OrderPlaced } from "@/components/OrderPlaced";
+import { RazorpayPayButton } from "@/components/checkout/RazorpayPayButton";
+import { isRazorpayConfigured } from "@/lib/payments/razorpay";
 
 export const metadata: Metadata = {
   // Someone's address and what they bought. Never indexed, never followed.
@@ -75,6 +77,9 @@ export default async function OrderPage({
   const hasValidToken = verifyOrderToken(orderNumber, query.t);
   if (!ownsIt && !hasValidToken) notFound();
 
+  const awaitingPayment = order.status === "PENDING_PAYMENT";
+  const canPayNow = awaitingPayment && order.paymentMethod === "ONLINE" && isRazorpayConfigured();
+
   return (
     <div className="storefront-shell">
       <Navbar nav={homepage.nav} />
@@ -93,10 +98,27 @@ export default async function OrderPage({
           </h1>
 
           <p className="mt-3 max-w-prose text-base leading-relaxed text-bone/60">
-            {order.status === "PENDING_PAYMENT"
-              ? "Online payment isn’t connected yet, so nothing has been charged. Your order is held and we’ll be in touch."
-              : `We’ve got your order. Keep this page — order confirmation emails aren’t set up yet, so this is your record.`}
+            {awaitingPayment
+              ? canPayNow
+                ? "Nothing has been charged yet. Pay below to confirm your order — we’ll hold it in the meantime."
+                : "Online payment isn’t available right now, so nothing has been charged. Your order is held and we’ll be in touch."
+              : "We’ve got your order. Keep this page — order confirmation emails aren’t set up yet, so this is your record."}
           </p>
+
+          {/*
+            The payment button is shown only for an order the database still
+            calls PENDING_PAYMENT. That value is set by the webhook, so this
+            button disappears when the payment is actually recorded — not when
+            the browser thinks it was. See the webhook route for why the
+            distinction matters.
+          */}
+          {awaitingPayment && canPayNow && (
+            <RazorpayPayButton
+              orderNumber={order.orderNumber}
+              token={query.t}
+              amount={order.total}
+            />
+          )}
 
           <dl className="mt-8 grid gap-4 border-y border-ink-line py-5 sm:grid-cols-3">
             <div>
@@ -118,10 +140,43 @@ export default async function OrderPage({
             <div>
               <dt className="eyebrow">Payment</dt>
               <dd className="mt-1 text-sm text-bone">
-                {order.paymentMethod === "COD" ? "Cash on delivery" : "Online"}
+                {order.paymentMethod === "COD"
+                  ? "Cash on delivery"
+                  : order.paidAt
+                    ? "Online — paid"
+                    : "Online — unpaid"}
               </dd>
             </div>
           </dl>
+
+          {/*
+            Tracking, shown only once there is something real to show.
+            `courierStatus` is the courier's own wording, kept verbatim — "Out
+            for delivery" tells a customer more than any status of ours could,
+            and paraphrasing it into our seven-value enum would throw that away.
+          */}
+          {(order.awb || order.courierStatus) && (
+            <section className="mt-8 border border-ink-line px-4 py-4">
+              <h2 className="eyebrow">Delivery</h2>
+              <p className="mt-2 text-sm text-bone">
+                {order.courierStatus ?? "Handed to the courier"}
+                {order.courierName ? ` · ${order.courierName}` : ""}
+              </p>
+              {order.awb && (
+                <p className="mt-1 text-xs tabular-nums text-bone/40">AWB {order.awb}</p>
+              )}
+              {order.trackingUrl && (
+                <a
+                  href={order.trackingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-block text-label font-bold uppercase text-bone underline underline-offset-4 transition-opacity hover:opacity-70"
+                >
+                  Track this parcel
+                </a>
+              )}
+            </section>
+          )}
 
           <section className="mt-8">
             <h2 className="eyebrow">Items</h2>

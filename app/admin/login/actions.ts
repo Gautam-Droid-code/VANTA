@@ -9,7 +9,12 @@ import {
   rateLimitKey,
   recordFailureAll,
 } from "@/lib/rateLimit";
-import { ADMIN_COOKIE_OPTIONS, SESSION_COOKIE, createSessionToken } from "@/lib/session";
+import {
+  ADMIN_COOKIE_CLEAR,
+  ADMIN_COOKIE_OPTIONS,
+  SESSION_COOKIE,
+  createSessionToken,
+} from "@/lib/session";
 import {
   createAdminSession,
   getAdmin,
@@ -162,7 +167,12 @@ export async function logoutAction(): Promise<void> {
     await recordAudit({ actor: admin.username, action: "admin.signout" });
   }
 
+  /**
+   * Cleared with its path. `delete(SESSION_COOKIE)` targets path `/` and does
+   * not match a cookie set at `/admin`, so it left the JWT in the browser and
+   * sign-out ended in a redirect loop. See ADMIN_COOKIE_CLEAR.
+   */
   const store = await cookies();
-  store.delete(SESSION_COOKIE);
+  store.delete(ADMIN_COOKIE_CLEAR);
   redirect("/admin/login");
 }

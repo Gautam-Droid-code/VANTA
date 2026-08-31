@@ -3,6 +3,7 @@ import Link from "next/link";
 import { contentStore } from "@/lib/contentStore";
 import { hasDatabase, prisma } from "@/lib/db";
 import { getCustomer } from "@/lib/auth/customerSession";
+import { isRazorpayConfigured } from "@/lib/payments/razorpay";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
@@ -87,6 +88,7 @@ export default async function CheckoutPage() {
               <CheckoutForm
                 addresses={addresses}
                 signedInEmail={customer?.email ?? null}
+                onlinePaymentEnabled={isRazorpayConfigured()}
               />
 
               <aside className="mt-12 lg:sticky lg:top-[calc(var(--header-h)+2rem)] lg:mt-0">

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { ADMIN_COOKIE_CLEAR, SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 
 /**
  * Gates every `/admin` route behind a signed session cookie.
@@ -58,7 +58,10 @@ export async function middleware(request: NextRequest) {
 
   const response = noStore(NextResponse.redirect(loginUrl));
   // Clear an invalid/expired cookie so it isn't re-sent on every request.
-  response.cookies.delete(SESSION_COOKIE);
+  // With the path — the cookie is set at `/admin`, and a delete without it
+  // targets `/` and silently leaves the cookie in place. See
+  // ADMIN_COOKIE_CLEAR in lib/session.ts.
+  response.cookies.delete(ADMIN_COOKIE_CLEAR);
   return response;
 }
 

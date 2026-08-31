@@ -67,6 +67,9 @@ const ACTION_LABELS: Record<string, string> = {
   "content.draft.discarded": "Discarded draft",
   "media.uploaded": "Uploaded a photo",
   "media.deleted": "Deleted a photo",
+  "courier.pushed": "Pushed an order to the courier",
+  "courier.push_failed": "Courier push failed",
+  "courier.queue_drained": "Drained the courier queue",
 };
 
 export default async function SecurityPage() {

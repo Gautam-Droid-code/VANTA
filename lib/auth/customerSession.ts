@@ -30,6 +30,31 @@ export const CUSTOMER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 /** 32 random bytes — 256 bits, which is not guessable and not worth stretching. */
 const TOKEN_BYTES = 32;
 
+/**
+ * Cookie attributes, named rather than written inline at the set site.
+ *
+ * `sameSite: "lax"` where the admin cookie uses `strict`: a customer can
+ * legitimately arrive from a link in an email or a shared product URL and
+ * should still be signed in when they land. The admin has no such entry point.
+ *
+ * `path: "/"` because the whole storefront needs it — the navbar, the bag
+ * merge, every account page.
+ *
+ * That path is also why the sign-out below is correct as written: a bare
+ * `delete(name)` defaults to `/`, which is where this cookie lives, so the two
+ * agree. The admin cookie is set at `/admin` and did **not** agree, which is
+ * the bug ADMIN_COOKIE_CLEAR in `lib/session.ts` exists to prevent recurring.
+ * Named here so that if this path ever changes, the mismatch is visible in one
+ * file rather than latent across two.
+ */
+const CUSTOMER_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  path: "/",
+  maxAge: CUSTOMER_SESSION_MAX_AGE,
+} as const;
+
 const digest = (token: string): string =>
   createHash("sha256").update(token, "utf8").digest("hex");
 
@@ -70,13 +95,7 @@ export async function createCustomerSession(customerId: string): Promise<void> {
   });
 
   const store = await cookies();
-  store.set(CUSTOMER_SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: CUSTOMER_SESSION_MAX_AGE,
-  });
+  store.set(CUSTOMER_SESSION_COOKIE, token, CUSTOMER_COOKIE_OPTIONS);
 }
 
 /**
@@ -138,7 +157,9 @@ export async function destroyCustomerSession(): Promise<void> {
     await prisma.customerSession.deleteMany({ where: { tokenHash: digest(token) } });
   }
 
-  store.delete(CUSTOMER_SESSION_COOKIE);
+  // Name alone is correct here only because CUSTOMER_COOKIE_OPTIONS.path is
+  // "/", which is what delete defaults to. Stated rather than implied.
+  store.delete({ name: CUSTOMER_SESSION_COOKIE, path: CUSTOMER_COOKIE_OPTIONS.path });
 }
 
 /** Signs a customer out of every device — used after a password change. */

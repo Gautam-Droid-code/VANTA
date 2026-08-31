@@ -46,7 +46,7 @@ export function isTurnstileConfigured(): boolean {
 }
 
 /**
- * Rejects a token that has already been accepted here.
+ * Single-use enforcement, in two phases: claim, then keep or release.
  *
  * Cloudflare documents tokens as single-use and returns `timeout-or-duplicate`
  * on reuse — but "documented as" is not "enforced by us". If siteverify ever
@@ -56,32 +56,72 @@ export function isTurnstileConfigured(): boolean {
  * meaning for its columns, so this borrows the audit log's job instead: a
  * dedicated row keyed on the token hash.
  *
- * Without a database this returns "not seen": the customer forms are allowed to
- * run captcha-free in development, and the admin login refuses on its own if
- * the pieces it needs are missing.
+ * ## Why two phases and not one
+ *
+ * This used to be a single step: insert the marker, then ask Cloudflare. That
+ * burned the token on any outcome, including the ones where Cloudflare never
+ * answered. A timeout or a dropped connection left the marker behind, so the
+ * honest visitor's immediate retry — same widget, same token — came back
+ * `token-reused`, and the only way forward was to reload the page and solve a
+ * new challenge. A network wobble on Cloudflare's side became a dead form on
+ * ours.
+ *
+ * The obvious repair — insert only *after* a successful verification — is
+ * worse, because it opens the window this row exists to close: two requests
+ * carrying the same token both reach siteverify before either has recorded
+ * anything, and if Cloudflare accepts both, both are redeemed.
+ *
+ * So the claim still happens first and still relies on the unique primary key
+ * to make it atomic — one concurrent request wins, the rest are rejected — and
+ * it is **released only when we did not get an answer**. A definite "no" from
+ * Cloudflare keeps the claim, because that token is spent either way and there
+ * is nothing to gain by asking again.
  */
-async function alreadyRedeemed(token: string): Promise<boolean> {
-  if (!hasDatabase()) return false;
-
+async function tokenKey(token: string): Promise<string> {
   // The token is a bearer credential for one challenge. Storing a digest keeps
   // the log free of anything replayable, the same rule customer sessions follow.
   const { createHash } = await import("node:crypto");
-  const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
+  return `turnstile:token:${createHash("sha256").update(token, "utf8").digest("hex")}`;
+}
+
+/**
+ * Takes exclusive ownership of a token, or reports that somebody already has.
+ *
+ * Without a database this always succeeds: the customer forms are allowed to
+ * run captcha-free in development, and the admin login refuses on its own if
+ * the pieces it needs are missing.
+ */
+async function claimToken(token: string): Promise<{ claimed: boolean; key: string | null }> {
+  if (!hasDatabase()) return { claimed: true, key: null };
+
+  const key = await tokenKey(token);
 
   try {
     await prisma.rateLimitBucket.create({
       data: {
-        key: `turnstile:token:${tokenHash}`,
+        key,
         // Locked far into the future: this row is a "seen" marker, and the
         // lockout column is what stops `pruneRateLimits` clearing it early.
         lockedUntil: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
-    return false;
+    return { claimed: true, key };
   } catch {
     // The unique primary key rejected it, so this token has been here before.
-    return true;
+    return { claimed: false, key };
   }
+}
+
+/**
+ * Gives the token back, for the case where Cloudflare never rendered a verdict.
+ *
+ * Best-effort on purpose. If this delete fails the token stays burned, which is
+ * the old behaviour — inconvenient, never unsafe. Failing the sign-in because
+ * the *cleanup* failed would trade a rare annoyance for a common one.
+ */
+async function releaseToken(key: string | null): Promise<void> {
+  if (!key || !hasDatabase()) return;
+  await prisma.rateLimitBucket.deleteMany({ where: { key } }).catch(() => {});
 }
 
 /**
@@ -100,7 +140,12 @@ export async function verifyTurnstile(
   if (!secret) return { ok: false, reason: "not-configured" };
   if (!token) return { ok: false, reason: "missing-token" };
 
-  if (await alreadyRedeemed(token)) return { ok: false, reason: "token-reused" };
+  /**
+   * Claimed before the network call, so two requests carrying the same token
+   * cannot both be verified. The loser is rejected here rather than racing.
+   */
+  const { claimed, key } = await claimToken(token);
+  if (!claimed) return { ok: false, reason: "token-reused" };
 
   const body = new URLSearchParams({ secret, response: token });
   if (remoteIp) body.set("remoteip", remoteIp);
@@ -116,9 +161,17 @@ export async function verifyTurnstile(
       cache: "no-store",
     });
 
-    if (!response.ok) return { ok: false, reason: `http-${response.status}` };
+    if (!response.ok) {
+      // A 5xx from siteverify is Cloudflare failing, not the token failing.
+      // Released so the visitor's retry works.
+      await releaseToken(key);
+      return { ok: false, reason: `http-${response.status}` };
+    }
 
     const result = (await response.json()) as SiteverifyResponse;
+
+    // A verdict either way — the token is spent. The claim becomes the record
+    // of that, which is exactly what it is for.
     if (result.success) return { ok: true };
 
     return { ok: false, reason: result["error-codes"]?.join(",") || "rejected" };
@@ -126,11 +179,17 @@ export async function verifyTurnstile(
     /**
      * Cloudflare unreachable, or slower than the timeout.
      *
-     * Fails closed. A captcha that waves everything through the moment it
-     * cannot reach its verifier is a captcha an attacker can disable by making
-     * one host unreachable — and the forms behind this one either write to the
-     * database or hand out an admin session.
+     * Still fails **closed** — the caller is told no. A captcha that waves
+     * everything through the moment it cannot reach its verifier is a captcha
+     * an attacker can disable by making one host unreachable, and the forms
+     * behind this one either write to the database or hand out an admin
+     * session.
+     *
+     * But the token is released. Refusing this attempt is correct; refusing
+     * every *subsequent* attempt with the same token is not, because nothing
+     * was ever verified and the challenge the visitor solved is still good.
      */
+    await releaseToken(key);
     return { ok: false, reason: "verification-unavailable" };
   }
 }
