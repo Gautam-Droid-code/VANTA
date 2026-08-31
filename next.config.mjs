@@ -213,6 +213,26 @@ const nextConfig = {
        * long time.
        */
       { source: "/collections/all", destination: "/products", permanent: false },
+      /**
+       * `/collections/series-026` never existed as a route, but it was the
+       * homepage's "Shop Series 026" button for a while, so it is out in the
+       * world — in browser history, in anything that crawled the site, and in
+       * the published content of any deployment that published before the seed
+       * was corrected.
+       *
+       * Series 026 is a drop, not a category (§22), so the destination is the
+       * piece itself rather than inventing a category to satisfy a URL. The
+       * content is fixed too; this is what covers the copies we cannot reach.
+       *
+       * Not permanent, for the same reason as the rule above: a 301 is cached
+       * by browsers effectively for ever, and a future Series 026 collection
+       * page would then be unreachable for anyone who had followed this once.
+       */
+      {
+        source: "/collections/series-026",
+        destination: "/products/series-026-field-parka",
+        permanent: false,
+      },
     ];
   },
 };

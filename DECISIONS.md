@@ -2063,6 +2063,73 @@ being rewritten anyway; measured rather than eyeballed. It is one of the
 over-faded `bone` tints the known-issues list warns about, and the pattern is
 worth checking wherever `bone/40` or lower carries text.
 
+## 31. Fixing `/data` does not fix a published site
+
+The homepage's "Shop Series 026" button pointed at `/collections/series-026`,
+which 404s. It was reported, fixed, recorded as resolved — and then reported
+again, from the same button, still broken.
+
+### Why the first fix did nothing
+
+The fix changed `data/homepage.ts`. That file is the **seed**, not the content:
+
+> `/data` is the store's *seed*: it supplies the content until something is
+> published for the first time. — README
+
+Something had been published. From that moment `.content/site.json` is what the
+storefront reads and `/data` is never consulted again. So the repository was
+correct, the commit was correct, DECISIONS said "resolved", and the running
+site still served the dead link. Verified: the seed had
+`/products/series-026-field-parka` while the published document still had
+`/collections/series-026`.
+
+This is the same shape as §30 — the published document disagreeing with what
+the code implies — and the two turned up one after another. It is worth naming
+as a category rather than a coincidence: **anything under `/data` is only ever
+true of a fresh install.** A change there fixes nobody's running site,
+including the developer's own.
+
+Three things follow, and only the first is about this button:
+
+- **Fix the content, not the seed.** Corrected in `.content/site.json` directly
+  here; on a deployment it is an edit in `/admin` followed by a publish. Fixing
+  the seed as well is still right — a fresh install should not start broken —
+  but it is not the fix.
+- **The dead URL now redirects.** `/collections/series-026` was live on a
+  homepage for a while, so it exists in browser history, in anything that
+  crawled the site, and in the published content of any deployment nobody has
+  corrected yet. `next.config.mjs` sends it to the piece itself. Series 026 is a
+  drop, not a category (§22), so no category was invented to satisfy the URL.
+  Non-permanent, like the `/collections/all` rule beside it: a 301 is cached
+  effectively for ever, and a real Series 026 collection page later would be
+  unreachable for anyone who had followed it once.
+- **`npm run content:check-links`** walks every internal `href` in the published
+  content and reports the dead ones with the path they sit at
+  (`homepage.brandStatement.cta.href`). It found this one when run against the
+  pre-fix document and reports "all resolve" against the corrected one.
+
+### Why a script and not a publish-time refusal
+
+Publishing already refuses structurally invalid content — a category nested two
+levels deep, for instance (§22) — so refusing a dead link would have precedent.
+It is still the wrong call. An editor can legitimately point a link at a product
+they are about to add, or stage a link and the page for it across two publishes,
+and blocking that is worse than telling them afterwards. A dead internal link is
+a defect to be found, not a corruption to be prevented.
+
+The script reads through `contentStore`, so it checks whichever store is
+configured — the JSON file or Postgres. That is what `import-content.ts` cannot
+do: it reads `.content/site.json` itself to avoid the `server-only` guard, and
+is therefore blind to a Postgres-backed store. This one runs under
+`tsx --conditions=react-server`, which resolves that guard to a no-op — a node
+resolution flag rather than an environment variable, so it works on Windows too.
+
+### The honest limitation
+
+It checks links **in content**. A dead `href` hard-coded in a component is
+invisible to it, and so is a link whose target exists but renders an error. It
+covers the case that has now bitten twice; it is not a crawler.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items
@@ -2187,6 +2254,9 @@ entry that no longer matches the code, fix the entry in the same change.**
   always compare medians of ≥5 runs, and **commit before starting perf work** so
   a true before/after baseline can be measured on demand.
 
+- **`npm run content:check-links` is not wired into anything.** It has to be
+  remembered. It belongs in CI and in the pre-deploy checklist; until it is
+  there, a dead link still ships silently. §31.
 - **Over-faded `bone` tints carrying text.** §30 fixed one (`text-bone/40` on
   the homepage category rows, 3.58:1, failing AA) but did not sweep for the
   rest. Anything at `bone/40` or lower rendering text is a likely failure
@@ -2238,9 +2308,13 @@ entry that no longer matches the code, fix the entry in the same change.**
   **resolved**, §23-era work. All four render from `data/policies.ts` through
   `app/(policies)/[slug]`. The *content* is still placeholder — see above.
 - ~~Nav links point at `/collections/series-026`, which does not exist~~ —
-  **resolved.** Series 026 is a drop, not a category, so the link was repointed
-  at the piece itself (`/products/series-026-field-parka`) rather than a
-  category being invented for it.
+  **resolved twice, properly the second time.** Series 026 is a drop, not a
+  category, so the link points at the piece itself
+  (`/products/series-026-field-parka`) rather than a category being invented
+  for it. The first fix changed only the `/data` seed and left the published
+  content untouched, so the button stayed dead on every running site including
+  this one — §31. The published document is corrected, the old URL redirects,
+  and `npm run content:check-links` now catches the class.
 - ~~There are no migrations; `prisma db push` was used, so `npm run db:deploy`
   has nothing to apply~~ — **resolved**, §28. `prisma/migrations/` now holds a
   baseline verified to apply cleanly to an empty database with zero drift.

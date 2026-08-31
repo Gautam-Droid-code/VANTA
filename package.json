@@ -14,7 +14,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
-    "content:import": "tsx scripts/import-content.ts"
+    "content:import": "tsx scripts/import-content.ts",
+    "content:check-links": "tsx --conditions=react-server scripts/check-links.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

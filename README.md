@@ -66,6 +66,7 @@ Then open http://localhost:3000.
 | `npm run db:deploy` | Apply pending migrations (what a deploy runs) |
 | `npm run db:studio` | Browse the database in Prisma Studio |
 | `npm run content:import` | Copy `.content/site.json` into Postgres, once |
+| `npm run content:check-links` | Report dead internal links in the published content |
 
 ## Project structure
 
@@ -384,6 +385,14 @@ appear in the sidebar marked "Soon".
 content store, and the storefront reads from that store rather than importing
 `/data`. `/data` is the store's *seed*: it supplies the content until something
 is published for the first time.
+
+> [!WARNING]
+> **Editing `/data` does not change a site that has published anything.** The
+> seed is read once, ever. A link or a heading fixed in `/data` stays wrong on
+> every running site — including your own dev machine — until the same edit is
+> made in `/admin` and published. This has caused a user-visible dead link
+> twice; see `DECISIONS.md` §31. `npm run content:check-links` reports dead
+> internal links in whatever the store actually holds.
 
 > [!IMPORTANT]
 > The default store is a **JSON file** at `.content/site.json` (gitignored,
