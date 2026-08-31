@@ -2,6 +2,7 @@ import "server-only";
 
 import { contentStore } from "./contentStore";
 import type { Category, Product } from "@/data/types";
+import { productsIn } from "./categoryCounts";
 
 /**
  * Reads of the published catalogue, shared by the collection and product pages.
@@ -35,16 +36,13 @@ type ViewSlug = keyof typeof VIEWS;
 
 const isView = (slug: string): slug is ViewSlug => slug in VIEWS;
 
-/** The categories a product can actually be in — a group holds none itself. */
-export function leafCategories(all: Category[]): Category[] {
-  const parentIds = new Set(all.flatMap((c) => (c.parentId ? [c.parentId] : [])));
-  return all.filter((c) => !parentIds.has(c.id));
-}
+/**
+ * Counting lives in `lib/categoryCounts.ts` so `/admin` can use it too — this
+ * module is server-only and the admin categories screen is a client component.
+ * Re-exported here so server callers have one import for catalogue reads.
+ */
+export { leafCategories, withProductCounts, type CountedCategory } from "./categoryCounts";
 
-/** A group's own id plus its children's, for matching products. */
-function idsUnder(category: Category, all: Category[]): Set<string> {
-  return new Set([category.id, ...all.filter((c) => c.parentId === category.id).map((c) => c.id)]);
-}
 
 export async function getCollection(slug: string): Promise<Collection | null> {
   const { homepage, collectionPage, products } = await contentStore.read();
@@ -57,7 +55,6 @@ export async function getCollection(slug: string): Promise<Collection | null> {
         id: slug,
         name: collectionPage.viewNames[slug],
         href: `/collections/${slug}`,
-        itemCount: 0,
         image: { src: "", alt: "", width: 0, height: 0 },
       },
       products: VIEWS[slug].select(products),
@@ -68,12 +65,11 @@ export async function getCollection(slug: string): Promise<Collection | null> {
   if (!category) return null;
 
   /**
-   * A group shows everything in its children. `idsUnder` includes the group's
-   * own id as well, so a product assigned directly to a group — which the
-   * admin allows, even if it is unusual — is not silently invisible.
+   * A group shows everything in its children. `productsIn` includes the
+   * group's own id as well, so a product assigned directly to a group — which
+   * the admin allows, even if it is unusual — is not silently invisible.
    */
-  const ids = idsUnder(category, homepage.categories.items);
-  return { category, products: products.filter((p) => ids.has(p.categoryId)) };
+  return { category, products: productsIn(category, homepage.categories.items, products) };
 }
 
 export async function getAllCollections(): Promise<Category[]> {
@@ -98,9 +94,11 @@ export interface CollectionLink {
  * catalogue — and splitting them by how they happen to be computed would be
  * exposing an implementation detail as navigation.
  *
- * Counts are computed here rather than read from `Category.itemCount`, which
- * is a hand-typed field and drifts. A number sitting next to a grid the
- * visitor can count themselves has to be right.
+ * Counts are computed, never stored. This function was the first place to do
+ * that; `Category.itemCount` was a hand-typed field that drifted badly, and it
+ * has since been removed entirely rather than left as a second answer to the
+ * same question. A number sitting next to a grid the visitor can count
+ * themselves has to be right.
  */
 export async function getCollectionLinks(): Promise<CollectionLink[]> {
   const { homepage, collectionPage, products } = await contentStore.read();
@@ -116,10 +114,7 @@ export async function getCollectionLinks(): Promise<CollectionLink[]> {
   });
 
   const all = homepage.categories.items;
-  const countFor = (c: Category) => {
-    const ids = idsUnder(c, all);
-    return products.filter((p) => ids.has(p.categoryId)).length;
-  };
+  const countFor = (c: Category) => productsIn(c, all, products).length;
 
   /**
    * Groups first, each followed by its own children. Flat list with a `nested`

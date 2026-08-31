@@ -1,9 +1,16 @@
 import type { Category } from "./types";
 
 /**
- * `itemCount` mirrors how many products carry each `categoryId`. It is stored
- * rather than derived because the homepage rows render without loading the
- * catalogue — but that means it has to be updated when products are added.
+ * Categories carry **no product count**.
+ *
+ * There used to be a stored `itemCount` here, justified as "the homepage rows
+ * render without loading the catalogue". That was not true — `app/page.tsx` is
+ * a server component and already reads the whole content store, products
+ * included — so the field bought nothing and cost accuracy. Every one of the
+ * seven values had drifted: the homepage row read "TOPS — 38 ITEMS" and the
+ * page behind it said "10 pieces".
+ *
+ * Counts come from `withProductCounts` in `lib/catalogue.ts` now. DECISIONS §30.
  */
 
 export const categories: Category[] = [
@@ -16,7 +23,6 @@ export const categories: Category[] = [
     id: "clothing",
     name: "Clothing",
     href: "/collections/clothing",
-    itemCount: 0,
     image: {
       src: "/images/product-shell-jacket.webp",
       alt: "",
@@ -28,7 +34,6 @@ export const categories: Category[] = [
     id: "accessories",
     name: "Accessories",
     href: "/collections/accessories",
-    itemCount: 0,
     image: {
       src: "/images/model-01.webp",
       alt: "",
@@ -41,7 +46,6 @@ export const categories: Category[] = [
     name: "Jackets",
     href: "/collections/jackets",
     parentId: "clothing",
-    itemCount: 12,
     image: {
       src: "/images/product-shell-jacket.webp",
       alt: "",
@@ -54,7 +58,6 @@ export const categories: Category[] = [
     name: "Parkas",
     href: "/collections/parkas",
     parentId: "clothing",
-    itemCount: 8,
     image: {
       src: "/images/model-02.webp",
       alt: "",
@@ -67,7 +70,6 @@ export const categories: Category[] = [
     name: "Tops",
     href: "/collections/tops",
     parentId: "clothing",
-    itemCount: 10,
     image: {
       src: "/images/model-03.webp",
       alt: "",
@@ -80,7 +82,6 @@ export const categories: Category[] = [
     name: "Pants",
     href: "/collections/pants",
     parentId: "clothing",
-    itemCount: 8,
     image: {
       src: "/images/product-cargo-pant.webp",
       alt: "",
@@ -93,7 +94,6 @@ export const categories: Category[] = [
     name: "Bags",
     href: "/collections/bags",
     parentId: "accessories",
-    itemCount: 7,
     image: {
       src: "/images/model-01.webp",
       alt: "",

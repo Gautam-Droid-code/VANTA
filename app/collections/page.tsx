@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { contentStore } from "@/lib/contentStore";
-import { leafCategories } from "@/lib/catalogue";
+import { leafCategories, withProductCounts } from "@/lib/catalogue";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
@@ -19,7 +19,7 @@ export async function generateMetadata(): Promise<Metadata> {
  * shape are already right.
  */
 export default async function CollectionsPage() {
-  const { homepage, collectionPage } = await contentStore.read();
+  const { homepage, collectionPage, products } = await contentStore.read();
 
   return (
     <div className="storefront-shell">
@@ -37,7 +37,10 @@ export default async function CollectionsPage() {
           ) : null}
         </header>
 
-        <CategoryList heading="" items={leafCategories(homepage.categories.items)} />
+        <CategoryList
+          heading=""
+          items={leafCategories(withProductCounts(homepage.categories.items, products))}
+        />
       </main>
 
       <Footer content={homepage.footer} />

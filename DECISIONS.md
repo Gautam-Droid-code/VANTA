@@ -756,12 +756,17 @@ Not sourced from anywhere: reference imagery was requested from Pinterest, and
 those photographs belong to other brands and photographers. Real photography
 goes in through the uploader.
 
-### `itemCount` is stored, not derived
+### ~~`itemCount` is stored, not derived~~ — reversed by §30
 
-`Category.itemCount` mirrors the number of products carrying that `categoryId`.
-It stays stored because the homepage rows render without loading the catalogue
-— but it has to be updated when products are added, and nothing enforces that
-yet.
+This recorded `Category.itemCount` as a stored mirror of the product count,
+"because the homepage rows render without loading the catalogue", and admitted
+that "nothing enforces" keeping it current.
+
+**Both halves were wrong.** `app/page.tsx` is a server component that already
+reads the whole content store, products included, so the premise never held —
+the field bought nothing. And "nothing enforces that yet" turned out to mean
+every single value drifted: the homepage row read "TOPS — 38 ITEMS" over a page
+listing 10. The field is gone; counts are derived. §30.
 
 ## 20. Collection pages are editable
 
@@ -886,8 +891,12 @@ Clothing a sibling would have forced products to pick one, and picking
 "Clothing" would have thrown away the fact that it is a jacket.
 
 `Category.parentId` models it instead. A group's collection page shows
-everything in its children; its own `itemCount` is ignored because the page
-counts the catalogue itself.
+everything in its children, and its count is the sum of them — `productsIn` in
+`lib/categoryCounts.ts` matches the group's own id as well as its children's,
+so a product assigned directly to a group is not invisible. (This paragraph
+used to say the group's `itemCount` "is ignored because the page counts the
+catalogue itself". That field no longer exists — §30 — and the groups showed a
+literal 0 on every surface that did trust it.)
 
 **One level, enforced.** Publishing refuses a category whose parent is itself
 inside a group, and refuses a category that is its own parent. The admin's
@@ -1963,6 +1972,97 @@ animation on the site, not just this control. Scroll-linked motion has to be
 checked in a real browser; the pane can confirm structure, attributes,
 contrast and event wiring, and nothing about how it moves.
 
+## 30. Category counts are derived, and the stored field is gone
+
+The homepage advertised **"TOPS — 38 ITEMS"**. Clicking it opened a page headed
+"10 pieces", with a sidebar that also said 10. Reported from the storefront,
+not found by a test.
+
+### Every stored count was wrong
+
+`Category.itemCount` was a hand-typed field, edited through a "Number of items"
+input in `/admin`. Measured against the published catalogue:
+
+| Category | Stored | Actual |
+|---|---|---|
+| Jackets | 24 | 12 |
+| Parkas | 12 | 8 |
+| Tops | 38 | 10 |
+| Pants | 19 | 8 |
+| Bags | 9 | 7 |
+| Clothing | 0 | 38 |
+| Accessories | 0 | 7 |
+
+Not one was right. The two groups read 0 because a group holds no products of
+its own, so nobody ever typed a number into them — while their *collection*
+pages correctly showed 38 and 7, because that page counts.
+
+### The justification had already stopped being true
+
+§19 recorded the field as stored "because the homepage rows render without
+loading the catalogue". `app/page.tsx` is a server component that reads the
+entire content store, products included, and passes `homepage.categories.items`
+straight into `CategoryList`. The catalogue was already in hand. The field
+bought nothing and cost accuracy.
+
+Two other places in the codebase had already worked this out and said so
+without anyone joining the dots:
+
+- `getCollectionLinks` in `lib/catalogue.ts`: *"Counts are computed here rather
+  than read from `Category.itemCount`, which is a hand-typed field and drifts.
+  A number sitting next to a grid the visitor can count themselves has to be
+  right."*
+- The admin field's own hint: *"Typed in by hand — the collection page counts
+  products itself."*
+
+So the disagreement was documented in two places and shipped anyway. Writing
+down that a value is unreliable is not the same as removing the unreliable
+value, and a comment explaining a defect will not stop anyone reading the
+number.
+
+### Removed, not corrected
+
+Correcting the seven numbers would have reset the clock on the same drift — the
+next product added puts them wrong again. So `itemCount` is deleted from the
+`Category` type, the publish schema, the seed data, and the admin.
+
+Counting now lives in `lib/categoryCounts.ts`, which is **client-safe** — no
+`import "server-only"`. That is the point of it being a separate module from
+`lib/catalogue.ts`: `/admin/categories` is a client component editing draft
+state, and it has to show the same number computed from the draft's own
+products. Server-only counting would have left the admin either duplicating the
+logic or going without, and duplicating it is exactly how this bug happened.
+Same split as `lib/mediaLimits.ts` and `lib/checkoutSchema.ts` — the rule is
+shared, the I/O is not.
+
+`productsIn(category, allCategories, products)` is the single definition of
+"what is in this category", used by the collection page, its side nav, the
+homepage rows and the admin. A grid and the number above it can no longer
+disagree, because they are the same function call.
+
+### Two things worth stealing from this
+
+**The admin input is gone, not disabled.** An editable field that no longer
+affects anything is worse than no field: staff would keep typing numbers into
+it and reasonably expect them to appear. The live count is shown on the
+categories list instead, where it is information rather than an invitation.
+
+**`CountedCategory extends Category` is assignable to `Category`,** so
+TypeScript would happily let a derived `count` ride from the list into the
+editor, through `save`, and back into published content — quietly recreating
+the stored field. `forEditing()` strips it on the way in. The publish schema
+would also drop it, but only after it had been written to the draft, and a
+draft carrying a phantom field is the beginning of the same problem.
+
+### One contrast fix, in passing
+
+The homepage row's count label was `text-bone/40` — **3.58:1** on `ink`, which
+fails AA for text. It is `text-bone-faint` now: **6.12:1**, and the token
+`tailwind.config.ts` describes for "labels, meta". Changed because the line was
+being rewritten anyway; measured rather than eyeballed. It is one of the
+over-faded `bone` tints the known-issues list warns about, and the pattern is
+worth checking wherever `bone/40` or lower carries text.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items
@@ -2087,6 +2187,12 @@ entry that no longer matches the code, fix the entry in the same change.**
   always compare medians of ≥5 runs, and **commit before starting perf work** so
   a true before/after baseline can be measured on demand.
 
+- **Over-faded `bone` tints carrying text.** §30 fixed one (`text-bone/40` on
+  the homepage category rows, 3.58:1, failing AA) but did not sweep for the
+  rest. Anything at `bone/40` or lower rendering text is a likely failure
+  against `ink`; `bone-faint` is 6.12:1 and is the token meant for that job.
+  Worth a pass with axe at a real viewport width — several of these sit behind
+  `sm:`/`md:` breakpoints and are skipped by an audit run at a narrow one.
 - **`/products` has a `heading-order` violation.** Product cards render an
   `<h3>` under an `<h1>` with no `<h2>` between. Measured with axe during §29:
   it is the only violation on `/`, `/products` and `/products/[slug]`, and it

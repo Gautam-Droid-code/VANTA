@@ -3,12 +3,16 @@
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import type { Category } from "@/data/types";
+import type { CountedCategory } from "@/lib/catalogue";
 import { duration, ease } from "@/lib/motion";
 import { ArrowRightIcon } from "@/components/ui/Icons";
 
 interface CategoryRowProps {
-  category: Category;
+  /**
+   * Carries a `count` derived from the catalogue, not a stored `itemCount`.
+   * The old field disagreed with every collection page it linked to. §30.
+   */
+  category: CountedCategory;
 }
 
 const MotionLink = motion.create(Link);
@@ -60,8 +64,14 @@ export function CategoryRow({ category }: CategoryRowProps) {
       </motion.span>
 
       <span className="flex shrink-0 items-center gap-4">
-        <span className="hidden text-label font-bold uppercase text-bone/40 sm:inline">
-          {category.itemCount} items
+        {/*
+          `bone-faint` rather than `bone/40`. The token is the one described in
+          `tailwind.config.ts` as being for labels and meta, and at 6.12:1 on
+          `ink` it passes AA — where `bone/40` is 3.58:1 and does not. Measured
+          while replacing the number this line renders.
+        */}
+        <span className="hidden text-label font-bold uppercase text-bone-faint sm:inline">
+          {category.count} {category.count === 1 ? "item" : "items"}
         </span>
         <motion.span
           variants={{ rest: { x: 0 }, active: { x: 6 } }}

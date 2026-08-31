@@ -6,10 +6,33 @@ import type { Category } from "@/data/types";
 import { useDraft } from "@/components/admin/AdminDraftProvider";
 import { CategoryDrawer, blankCategory } from "@/components/admin/CategoryDrawer";
 import { Button, Card, Field, TextInput } from "@/components/admin/ui";
+import { withProductCounts, type CountedCategory } from "@/lib/categoryCounts";
 
 export default function AdminCategoriesPage() {
-  const { content, updateSection } = useDraft();
+  const { content, products, updateSection } = useDraft();
   const { heading, items } = content.categories;
+
+  /**
+   * Counted from the draft's own products, so the number staff see here is the
+   * number the storefront will render once they publish. There is no stored
+   * count any more — see §30 for what that field was doing wrong.
+   */
+  const counted = withProductCounts(items, products);
+
+  /**
+   * Strips the derived `count` before the editor sees a category.
+   *
+   * `CountedCategory` is assignable to `Category`, so TypeScript would happily
+   * let the extra field ride into the drawer, back through `save`, and into
+   * published content — quietly recreating the stored count this change exists
+   * to remove. The publish schema would drop it, but only after it had already
+   * been written to the draft.
+   */
+  const forEditing = (counted: CountedCategory): Category => {
+    const category = { ...counted } as Partial<CountedCategory>;
+    delete category.count;
+    return category as Category;
+  };
 
   const [editing, setEditing] = useState<Category | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -77,7 +100,7 @@ export default function AdminCategoriesPage() {
             </tr>
           </thead>
           <tbody>
-            {items.map((c) => (
+            {counted.map((c) => (
               <tr
                 key={c.id}
                 className="border-b border-admin-border last:border-0 hover:bg-admin-surface-alt"
@@ -86,7 +109,7 @@ export default function AdminCategoriesPage() {
                   <p className="text-sm font-medium text-admin-ink">{c.name}</p>
                   <p className="text-xs text-admin-subtle">{c.id}</p>
                 </td>
-                <td className="px-5 py-3 text-sm text-admin-ink">{c.itemCount}</td>
+                <td className="px-5 py-3 text-sm text-admin-ink">{c.count}</td>
                 <td className="px-5 py-3">
                   <div className="relative h-12 w-10 overflow-hidden rounded bg-ink-raised">
                     <Image src={c.image.src} alt="" fill sizes="40px" className="object-cover" />
@@ -95,7 +118,7 @@ export default function AdminCategoriesPage() {
                 <td className="px-5 py-3 text-right">
                   <Button
                     onClick={() => {
-                      setEditing(c);
+                      setEditing(forEditing(c));
                       setIsNew(false);
                     }}
                   >
@@ -108,12 +131,12 @@ export default function AdminCategoriesPage() {
         </table>
 
         <ul className="divide-y divide-admin-border sm:hidden">
-          {items.map((c) => (
+          {counted.map((c) => (
             <li key={c.id}>
               <button
                 type="button"
                 onClick={() => {
-                  setEditing(c);
+                  setEditing(forEditing(c));
                   setIsNew(false);
                 }}
                 className="flex w-full items-center gap-3 p-4 text-left"
@@ -123,7 +146,9 @@ export default function AdminCategoriesPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-admin-ink">{c.name}</p>
-                  <p className="text-xs text-admin-muted">{c.itemCount} items</p>
+                  <p className="text-xs text-admin-muted">
+                    {c.count} {c.count === 1 ? "item" : "items"}
+                  </p>
                 </div>
               </button>
             </li>

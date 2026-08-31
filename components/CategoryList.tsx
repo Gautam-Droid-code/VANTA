@@ -1,11 +1,12 @@
-import type { Category } from "@/data/types";
+import type { CountedCategory } from "@/lib/catalogue";
 import { fadeUpSm, stagger } from "@/lib/motion";
 import { CategoryRow } from "@/components/CategoryRow";
 import { RevealGroup, RevealItem } from "@/components/ui/Reveal";
 
 interface CategoryListProps {
   heading: string;
-  items: Category[];
+  /** Counted by the caller, which already holds the catalogue. §30. */
+  items: CountedCategory[];
 }
 
 /**

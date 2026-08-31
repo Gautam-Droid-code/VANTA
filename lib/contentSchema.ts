@@ -138,7 +138,9 @@ const category = z.object({
   name: nonEmpty,
   href: nonEmpty,
   image: imageAsset,
-  itemCount: z.number().int().nonnegative(),
+  // No `itemCount`: counts are derived from the catalogue, never stored. A
+  // published document that still carries one is stripped here on the next
+  // publish, which is the intended cleanup path. §30.
   parentId: z.string().optional(),
   // Page-level extras. Optional, and an empty description is meaningful —
   // it means "no intro on this collection page", not an unfinished field.

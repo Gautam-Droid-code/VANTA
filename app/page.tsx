@@ -1,5 +1,5 @@
 import { contentStore } from "@/lib/contentStore";
-import { leafCategories } from "@/lib/catalogue";
+import { leafCategories, withProductCounts } from "@/lib/catalogue";
 import { Navbar } from "@/components/Navbar";
 import { Hero } from "@/components/Hero";
 import { Lookbook } from "@/components/Lookbook";
@@ -96,7 +96,7 @@ export default async function HomePage() {
               beneath it. */}
           <CategoryList
             heading={homepage.categories.heading}
-            items={leafCategories(homepage.categories.items)}
+            items={leafCategories(withProductCounts(homepage.categories.items, products))}
           />
         </div>
       </main>

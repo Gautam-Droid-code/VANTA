@@ -135,7 +135,11 @@ export interface Category {
   href: string;
   /** Revealed behind the row on hover (desktop) / tap (mobile). */
   image: ImageAsset;
-  itemCount: number;
+  /*
+   * No `itemCount`. It used to be stored and typed by hand, and it drifted from
+   * the catalogue on every single category. Counts are derived —
+   * `withProductCounts` in `lib/catalogue.ts`. See DECISIONS §30.
+   */
   /**
    * The group this category sits inside, by `Category.id`.
    *

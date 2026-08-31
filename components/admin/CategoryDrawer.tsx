@@ -123,19 +123,15 @@ export function CategoryDrawer({
             </Select>
           </Field>
 
-          <Field
-            label="Number of items"
-            htmlFor="c-count"
-            hint="Shown next to the category name on the homepage. Typed in by hand — the collection page counts products itself."
-          >
-            <TextInput
-              id="c-count"
-              type="number"
-              min={0}
-              value={draft.itemCount}
-              onChange={(e) => patch({ itemCount: Number(e.target.value) })}
-            />
-          </Field>
+          {/*
+            There was a "Number of items" field here, and its own hint admitted
+            the problem: "Typed in by hand — the collection page counts products
+            itself." Two answers to one question, and the typed one was wrong for
+            every category. Removed rather than corrected: the count is derived
+            wherever it is shown, and an input that changes nothing would be
+            worse than no input at all. The live count is on the categories list
+            behind this drawer. §30.
+          */}
 
           {/* Everything below appears on this category's own collection page. */}
           <Field
@@ -227,6 +223,5 @@ export const blankCategory = (): Category => ({
   id: "",
   name: "",
   href: "",
-  itemCount: 0,
   image: { src: "/images/model-01.webp", alt: "", width: 848, height: 1264 },
 });
