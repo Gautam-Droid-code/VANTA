@@ -1406,9 +1406,17 @@ Three properties make that safe:
   not be able to cause so much as a row to be written.
 - **Idempotency comes from a unique index, not from reading first.** Every
   delivery inserts into `WebhookEvent` under `@@unique([provider, eventKey])`
-  *before* any work happens. A duplicate raises P2002, returns 200, and changes
-  nothing. A check-then-act read would race a concurrent redelivery; the
-  database does not.
+  *before* any work happens. A check-then-act read would race a concurrent
+  redelivery; the database does not.
+
+  > **Amended by §29.** This paragraph used to end "A duplicate raises P2002,
+  > returns 200, and changes nothing." That was the bug, not the design. The
+  > insert-first ordering is right and survives; treating the row as *proof of
+  > completion* was wrong, because it was written before the handler knew
+  > whether it could act. Every no-op exit path — `unknown-order`,
+  > `amount-mismatch` — permanently consumed the key, and the redelivery that
+  > would have fixed things was answered 200 and discarded. The row is now a
+  > claim; `processedAt` is completion. See §29.
 - **The status update is conditional.** `updateMany` with
   `status: "PENDING_PAYMENT"` in the WHERE clause makes it one atomic
   statement, so `payment.captured` and `order.paid` can arrive for the same
@@ -1426,9 +1434,17 @@ one comparison.
 ### The order is written first, the payment second
 
 `createOrder` commits our order and *then* asks Razorpay for theirs. That
-ordering is deliberate: a database failure can never leave a Razorpay order
-with no local counterpart — a payment nobody could reconcile — and the reverse
-cannot happen, because theirs is only created once ours has committed.
+ordering is deliberate: theirs is only ever created once ours has committed, so
+there can be no Razorpay order for an order that was rolled back.
+
+> **Amended by §29.** This used to claim the ordering meant "a database failure
+> can never leave a Razorpay order with no local counterpart — a payment nobody
+> could reconcile". The ordering does not buy that, and the gap was one line
+> further down: the `razorpayOrderId` linking update ran *after* their order
+> existed and swallowed its own failure with `.catch(() => {})`. A pool timeout
+> there produced exactly the state the sentence promised was impossible — live,
+> payable, unmapped. The write now logs on failure, and the webhook can recover
+> the mapping from the order number Razorpay echoes back. §29.
 
 The handoff is also best-effort. If Razorpay is unreachable in that moment the
 order still exists, and the order page offers to start the payment again
@@ -1701,6 +1717,217 @@ fail — so the harness discriminates rather than passing vacuously.
   `app/admin/(dashboard)/app/admin/(dashboard)/pages`, untracked and containing
   nothing.
 
+## 29. Webhook claims, payment recovery, and the scroll gauge
+
+Two payment-path defects and one piece of storefront chrome. The two defects
+are the same shape underneath: a step that *recorded* an outcome before it knew
+what the outcome was.
+
+### A webhook row is a claim, not a receipt
+
+§27 got the ordering right and the meaning wrong.
+
+Inserting into `WebhookEvent` **before** doing any work is correct and stays:
+an insert that either succeeds or violates a unique index is the only thing
+that beats a concurrent redelivery, where a check-then-act read would race. The
+mistake was treating that row as proof the event had been *handled*. It was
+written the moment the event was accepted, and every exit path below it left it
+committed — including the ones that did nothing at all: `unknown-order`,
+`amount-mismatch`, `no-order-id`, a thrown exception.
+
+Razorpay then does exactly what it should. It retries, hits the unique index,
+receives 200 with `{duplicate: true}`, and stops. Reproduced against a live
+build:
+
+```
+delivery 1  -> {"ok":true,"ignored":"unknown-order"}   (event row written)
+[the order row is written a moment later]
+redelivery  -> {"ok":true,"duplicate":true}            (never processed)
+order: PENDING_PAYMENT   paidAt: null   courier jobs: 0
+```
+
+A paid order, stuck for ever, with no signal that money had arrived. The
+`unknown-order` path is not exotic — it is the ordinary race where the payment
+webhook outruns the checkout transaction.
+
+The fix separates *seen* from *processed* with two columns:
+
+- The insert sets `processedAt: null` and `attempts: 1`. It claims the key.
+- A unique violation now **reads the row**. `processedAt` set means a genuine
+  duplicate — 200, change nothing, as before. `processedAt` null means an
+  earlier delivery gave up part-way, so `attempts` is incremented and this
+  delivery carries on and does the work.
+- `processedAt` is stamped only on a terminal outcome: the order reached
+  `CONFIRMED`, was already paid, or the event is one we deliberately ignore
+  (`payment.failed`, anything outside `HANDLED_EVENTS`).
+- Everything else returns **503** with `processedAt` left null, so Razorpay
+  redelivers.
+
+The conditional `updateMany` from §27 — `status: "PENDING_PAYMENT"` in the
+WHERE clause — is what makes re-processing safe, and is now load-bearing in a
+way it was not before: a delivery can legitimately run twice, and this is what
+stops the second one re-stamping `paidAt`. It must not be relaxed.
+
+Two subtleties worth writing down:
+
+- **`updated.count === 0` has two causes.** The order was already paid (a
+  sibling event — `payment.captured` and `order.paid` both arrive for one
+  payment), or it is `CANCELLED`/`REFUNDED` and cannot accept payment. These
+  need opposite answers, so the order is **re-read** after the update rather
+  than trusting the snapshot taken before it. Already-paid is terminal.
+  Not-payable is left unprocessed and logged loudly: no retry can fix a payment
+  against a cancelled order, but it must not vanish either — somebody has to
+  decide about a refund.
+- **`amount-mismatch` is retryable, not terminal.** Consuming the key there
+  would discard a corrected redelivery, which is the second half of the same
+  bug.
+
+### Unprocessed rows are a reconciliation queue
+
+Which makes them worth showing. `/admin/orders` lists events with
+`processedAt: null`, oldest first, with their delivery count and full event key
+— the key being the thing you search the provider's dashboard for. The card
+renders only when the list is non-empty: a panel that is empty 99% of the time
+trains people to ignore it, and this is the one thing on that page that must
+not be ignored.
+
+The courier webhook shares the table, so it now stamps `processedAt` too.
+Without that it would fill the queue with successful tracking updates and make
+it useless for the case that actually matters. Its stakes are much lower — a
+dropped tracking update is a stale status line, not lost money — but sharing a
+table means sharing its conventions.
+
+### Recovering a payment whose mapping was never written
+
+`Order.razorpayOrderId` is written by a database call that runs *after*
+Razorpay's order exists, and that call swallowed its own failure:
+
+```ts
+await prisma.order.update({ ... }).catch(() => {});
+```
+
+A pool timeout or a cold serverless connection there leaves a Razorpay order
+that is live and payable with nothing on our side pointing at it. The webhook
+looked orders up **only** by `razorpayOrderId`, so the customer could pay in
+full and the payment would be unattributable — logging `unknown-order`, which
+before the fix above also permanently consumed the event key. Two defects
+compounding.
+
+The information to recover was already being sent and simply never read back.
+`createRazorpayOrder` sets `receipt: orderNumber` and `notes: { orderNumber }`,
+so the mapping also lives on Razorpay's side, where our database being briefly
+unavailable cannot touch it. Now:
+
+- `readWebhookFacts` returns `orderNumber`, read from `notes.orderNumber` and
+  `receipt` on both the payment and order entities — with the same
+  shape-tolerance as everything else in that function, because the payload
+  nesting is still unconfirmed against a real delivery.
+- The route falls back to `findUnique({ where: { orderNumber } })` when the id
+  lookup misses, and **backfills** `razorpayOrderId` on the way through so
+  later events resolve directly and the recovery path runs once. The backfill
+  is an `updateMany` guarded on the column still being null, because
+  `razorpayOrderId` is unique and a blind write would throw if another order
+  held it.
+- The linking write no longer swallows its error. It still does not fail the
+  checkout — the order exists and is correct, and the customer can pay from the
+  order page — but the failure is now logged with both ids.
+
+Verified end to end against `next build` + `next start` with a real Postgres:
+25 assertions covering all five cases from the brief (late order, mismatch then
+correction, `notes` fallback, `receipt` fallback, real duplicate, unsigned
+request writing nothing) plus sibling-event racing and unhandled event types.
+
+### Back to top, as an instrument
+
+The storefront's register is instrumentation: spec-sheet rows, `tabular-nums`,
+uppercase micro-labels, a reference code on every product page. A generic
+floating chevron would have been the one control on the site that came from
+somewhere else.
+
+So `components/BackToTop.tsx` is a depth gauge. A ring closes as the page is
+consumed and a `tabular-nums` readout gives the figure on hover or focus, the
+way an altimeter shows a needle and a number. It earns its place twice: before
+you press it, it is telling you how much is left — which the page did not
+otherwise expose. It is the first consumer of `lib/useScrollProgress.ts`, which
+had been written and never used.
+
+**Scrolling has two regimes and they cannot be scrolled the same way.**
+`ScrollEngine` (Lenis + GSAP) is mounted by the homepage only, per §18. Lenis
+runs its own rAF loop with its own idea of where the page is, so a bare
+`window.scrollTo` moves the real position without telling it and the next frame
+animates back from the value Lenis still believes is current — the page fights
+you. Everywhere else, and on the homepage under `prefers-reduced-motion` where
+Lenis is never started, native scrolling is correct.
+
+`lib/scrollTo.ts` is a module-level registry rather than a global.
+`ScrollEngine` already exposed `window.__lenis`, but only under
+`NODE_ENV !== "production"` — that is a test seam for automated scroll checks,
+not an API, and a control depending on it would have worked in development and
+silently fought Lenis in production. Verified by spying on both routes: on `/`
+the click calls `lenis.scrollTo(0, {immediate: false})` and `window.scrollTo`
+is never called; on `/products/[slug]` it calls
+`window.scrollTo({top: 0, behavior: "smooth"})` and there is no Lenis at all.
+
+Under `prefers-reduced-motion` it jumps (`immediate: true`) and the arc's CSS
+transition is dropped, so nothing on the control animates of its own accord.
+The preference is read with `useSyncExternalStore` — the same choice §21 makes
+for the bag, and for the same reason: a media query is genuinely an external
+store, and seeding state from an effect is what
+`react-hooks/set-state-in-effect` objects to.
+
+Contrast was computed, not eyeballed, which changed the design. `ink-raised` on
+`ink` is **1.13:1** — the surface alone gives the control no perceivable
+boundary — so it carries a `bone/40` border at **3.58:1**, over the 3:1 that
+WCAG 1.4.11 asks of a UI component. The chevron is 15.71:1 and the
+`flare-orange-hot` arc is 5.99:1. The track ring is deliberately below 3:1: it
+is decoration, the rule covers what identifies the component and its state, and
+a track bright enough to pass would read as a completed ring and destroy the
+only thing the arc exists to show.
+
+It sits clear of `BottomNav` using the same `--bottom-nav-h` variable the shell
+already pads with, so the two cannot drift apart, plus
+`env(safe-area-inset-bottom)`. It unmounts rather than fading to `opacity-0`,
+because an invisible button is still in the tab order.
+
+### The skip link that was missing all along
+
+Sixteen storefront pages render `<main id="main">`. Nothing had ever linked to
+it, so a keyboard user tabbed the whole navbar, the search field and the
+category row on every navigation.
+
+Both this and the back-to-top mount once, in the root layout, via
+`components/StorefrontChrome.tsx` — so a new route inherits them by existing
+rather than by someone remembering to paste two components in, which is exactly
+the failure that left `id="main"` orphaned for the life of the project.
+
+`/admin` is excluded by a pathname check rather than an `app/(storefront)`
+route group. The group is the textbook answer and would mean moving nine
+top-level route directories to buy a test one line can do, with every move a
+chance to break a static path. The check is honest about what it is: one
+boundary, in one file, named after the thing it excludes.
+
+`StorefrontChrome` sits *inside* `Providers` and first within it. Outside, the
+back-to-top's entrance would have escaped `MotionConfig reducedMotion="user"`;
+the three providers render context and no DOM, so nesting costs the skip link
+nothing — it is still the first element in the document.
+
+### On verifying scroll behaviour in this environment
+
+Recorded because it will waste somebody's afternoon otherwise. The in-app
+browser pane **never fires `requestAnimationFrame`** — measured, 0 ticks in
+800ms, with `document.visibilityState === "visible"`. Both `useScrolled` and
+`useScrollProgress` batch through rAF, and their `frame` guard latches on the
+first scroll, so scroll-driven UI appears permanently dead there and Lenis
+never advances. It is an artifact of the pane not compositing, not a bug in the
+hooks: Lenis's `wrapper` defaults to `window` and its `setScroll` calls
+`window.scrollTo`, so real scroll events and `window.scrollY` behave normally
+in a real browser — which is what `lib/useScrollProgress.ts` has always
+claimed and is, on inspection of Lenis's source, true.
+
+The workaround is to patch `requestAnimationFrame` to a macrotask *before
+hydration* and dispatch synthetic scroll events. Patching afterwards does not
+work, because the latched `frame` id never clears.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items
@@ -1744,6 +1971,13 @@ entry that no longer matches the code, fix the entry in the same change.**
   answers 422 rather than 200 on anything it cannot parse, so a mismatch is
   loud rather than silent — but it has not been tested against a real event.
   Send one test webhook before going live.
+
+  §29 widened this: the same function now also reads `notes.orderNumber` and
+  `receipt`, which are the recovery path for an unmapped payment. If the
+  nesting guess is wrong, that recovery silently never fires — it degrades to
+  the old behaviour rather than breaking, which makes a real test event more
+  valuable, not less. Confirm both the entity nesting **and** that `notes`
+  comes back on the payment entity.
 
 ### Correctness and security
 
@@ -1817,6 +2051,18 @@ entry that no longer matches the code, fix the entry in the same change.**
   spanning 87–99 and LCP 2.27–3.92s. Treat anything under ~4 points as noise,
   always compare medians of ≥5 runs, and **commit before starting perf work** so
   a true before/after baseline can be measured on demand.
+
+- **`/products` has a `heading-order` violation.** Product cards render an
+  `<h3>` under an `<h1>` with no `<h2>` between. Measured with axe during §29:
+  it is the only violation on `/`, `/products` and `/products/[slug]`, and it
+  predates that work. Fixing it means deciding whether the grid needs a real
+  section heading or the card should drop to a `<p>` with the link as the
+  accessible name.
+- **A payment against a CANCELLED order needs a human.** §29 leaves that event
+  unprocessed on purpose — no retry can resolve it — so it sits in the
+  reconciliation queue on `/admin/orders` until somebody issues a refund. There
+  is no refund path yet (see above), so today that means doing it in Razorpay's
+  dashboard and there is nothing in the admin that records having done so.
 
 ### Cosmetic
 

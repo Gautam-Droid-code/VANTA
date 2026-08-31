@@ -48,7 +48,7 @@ export default async function AdminOrdersPage() {
     );
   }
 
-  const [orders, pendingJobs, failingJobs] = await Promise.all([
+  const [orders, pendingJobs, failingJobs, unprocessedEvents] = await Promise.all([
     prisma.order.findMany({
       orderBy: { placedAt: "desc" },
       take: 100,
@@ -73,6 +73,27 @@ export default async function AdminOrdersPage() {
     }),
     prisma.outboxJob.count({ where: { kind: COURIER_PUSH, completedAt: null } }),
     prisma.outboxJob.count({ where: { kind: COURIER_PUSH, completedAt: null, attempts: { gt: 0 } } }),
+    /**
+     * The reconciliation queue: webhooks that were claimed but never reached a
+     * terminal outcome. §29.
+     *
+     * An unprocessed payment event is the highest-severity thing on this page —
+     * it means money may have moved for an order we did not confirm. Ordered
+     * oldest first, because the oldest is the one that has been wrong longest.
+     */
+    prisma.webhookEvent.findMany({
+      where: { processedAt: null },
+      orderBy: { receivedAt: "asc" },
+      take: 20,
+      select: {
+        id: true,
+        provider: true,
+        eventType: true,
+        eventKey: true,
+        attempts: true,
+        receivedAt: true,
+      },
+    }),
   ]);
 
   return (
@@ -116,6 +137,55 @@ export default async function AdminOrdersPage() {
           </form>
         </div>
       </Card>
+
+      {/*
+        Shown only when there is something wrong. A card that is empty 99% of
+        the time trains people to ignore it, and this is the one thing on the
+        page that must not be ignored.
+      */}
+      {unprocessedEvents.length > 0 && (
+        <Card className="border-admin-danger/40">
+          <CardHeader
+            title="Webhooks needing reconciliation"
+            hint="Events that arrived but could not be completed. A payment event here may mean money moved for an order that was never confirmed."
+          />
+          <div className="p-5">
+            <ul className="divide-y divide-admin-border">
+              {unprocessedEvents.map((event) => (
+                <li key={event.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
+                  <Pill tone={event.provider === "razorpay" ? "accent" : "muted"}>
+                    {event.provider}
+                  </Pill>
+                  <span className="text-sm text-admin-ink">{event.eventType ?? "unknown event"}</span>
+                  {event.attempts > 1 && (
+                    <span className="text-xs font-semibold text-admin-danger">
+                      {event.attempts} deliveries
+                    </span>
+                  )}
+                  <span className="text-xs text-admin-muted">
+                    {event.receivedAt.toLocaleString("en-IN", {
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  {/* The event key is what you search the provider's dashboard
+                      for, so it is shown in full rather than truncated. */}
+                  <span className="w-full break-all font-mono text-[11px] text-admin-muted">
+                    {event.eventKey}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 text-xs text-admin-muted">
+              These are left deliberately unfinished so the provider keeps
+              redelivering them — most clear themselves. One that persists needs
+              a look in the provider&rsquo;s dashboard against the key above.
+            </p>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="Orders" hint="The hundred most recent." />

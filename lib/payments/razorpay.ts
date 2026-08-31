@@ -138,6 +138,20 @@ export interface RazorpayWebhookFacts {
   paymentId: string | null;
   /** Their order id, which is how we find ours. */
   orderId: string | null;
+  /**
+   * **Our** order number (`VNT-2026-00042`), when the event carries it.
+   *
+   * The recovery path for a payment we cannot otherwise attribute. `Order.
+   * razorpayOrderId` is written by a database call made *after* their order
+   * exists, and that call can fail — leaving a payable Razorpay order with no
+   * local mapping. When it does, `orderId` above matches nothing.
+   *
+   * This is why `createRazorpayOrder` sends both `receipt: orderNumber` and
+   * `notes: { orderNumber }`: the mapping also lives on Razorpay's side, where
+   * our database being briefly unavailable cannot touch it. Reading it back
+   * here is what makes that redundancy usable rather than decorative. §29.
+   */
+  orderNumber: string | null;
   /** Paise, so it can be checked against what we expected to be paid. */
   amount: number | null;
 }
@@ -174,9 +188,32 @@ export function readWebhookFacts(body: unknown): RazorpayWebhookFacts | null {
   const payment = entityFrom("payment");
   const order = entityFrom("order");
 
-  const str = (value: unknown): string | null => (typeof value === "string" ? value : null);
+  const str = (value: unknown): string | null => {
+    if (typeof value === "string") return value.trim() || null;
+    return null;
+  };
   const num = (value: unknown): number | null =>
     typeof value === "number" && Number.isFinite(value) ? value : null;
+
+  /**
+   * Our order number, wherever they put it back.
+   *
+   * `notes` is an arbitrary key/value map they echo verbatim, and `receipt` is
+   * a documented field on the order entity — we set both at creation, so
+   * either will do. Both entities are checked because which one an event
+   * carries depends on the event type, and the payload nesting is still
+   * unconfirmed against a real delivery (see the note at the top of this file):
+   * the same tolerance that applies to everything else here applies to this.
+   */
+  const orderNumberFrom = (entity: Record<string, unknown> | null): string | null => {
+    if (!entity) return null;
+    const notes = entity.notes;
+    const fromNotes =
+      typeof notes === "object" && notes !== null
+        ? str((notes as Record<string, unknown>).orderNumber)
+        : null;
+    return fromNotes ?? str(entity.receipt);
+  };
 
   return {
     event,
@@ -184,6 +221,7 @@ export function readWebhookFacts(body: unknown): RazorpayWebhookFacts | null {
     // `order_id` lives on the payment entity; `id` on the order entity. Either
     // is the same order as far as we are concerned.
     orderId: (payment ? str(payment.order_id) : null) ?? (order ? str(order.id) : null),
+    orderNumber: orderNumberFrom(payment) ?? orderNumberFrom(order),
     amount: (payment ? num(payment.amount) : null) ?? (order ? num(order.amount) : null),
   };
 }

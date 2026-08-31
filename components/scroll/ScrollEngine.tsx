@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Lenis from "lenis";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { registerScroller } from "@/lib/scrollTo";
 
 /**
  * Storefront scroll engine: Lenis smooth scroll driven by GSAP's ticker, with
@@ -40,8 +41,19 @@ export function ScrollEngine() {
 
     lenis.on("scroll", ScrollTrigger.update);
 
+    /**
+     * Published so anything that needs to move the page goes through Lenis
+     * rather than around it — `BackToTop` is the first caller. A bare
+     * `window.scrollTo` while this is running gets animated back, because
+     * Lenis's next frame starts from the position it still believes is
+     * current. See `lib/scrollTo.ts`.
+     */
+    const unregister = registerScroller(lenis);
+
     // Dev-only handle so automated scroll checks can drive the real
-    // scroller instead of fighting Lenis with window.scrollTo.
+    // scroller instead of fighting Lenis with window.scrollTo. Deliberately
+    // separate from the registry above: this is a test seam on `window`, that
+    // is the application's own path and exists in every environment.
     if (process.env.NODE_ENV !== "production") {
       (window as unknown as { __lenis?: Lenis }).__lenis = lenis;
     }
@@ -59,6 +71,7 @@ export function ScrollEngine() {
       window.removeEventListener("load", refresh);
       window.clearTimeout(t);
       gsap.ticker.remove(raf);
+      unregister();
       if (process.env.NODE_ENV !== "production") {
         delete (window as unknown as { __lenis?: Lenis }).__lenis;
       }

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { fontVariables } from "./fonts";
 import { Providers } from "@/components/Providers";
 import { getCustomer } from "@/lib/auth/customerSession";
+import { StorefrontChrome } from "@/components/StorefrontChrome";
 import { siteUrl } from "@/lib/siteUrl";
 import "./globals.css";
 
@@ -62,7 +63,21 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en-IN" className={fontVariables}>
       <body>
-        <Providers signedIn={Boolean(customer)}>{children}</Providers>
+        <Providers signedIn={Boolean(customer)}>
+          {/*
+            Inside `Providers`, and first within it, which satisfies two things
+            at once: `MotionConfig reducedMotion="user"` wraps it (outside, the
+            back-to-top's entrance would ignore the user's motion setting), and
+            it is still the first element in the document, so the skip link is
+            the first thing focus reaches. The three providers render context
+            only — no DOM — so nesting costs it no position.
+
+            `StorefrontChrome` excludes itself on /admin; see the note there for
+            why that is a pathname check and not a route group.
+          */}
+          <StorefrontChrome />
+          {children}
+        </Providers>
       </body>
     </html>
   );

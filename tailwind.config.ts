@@ -30,7 +30,18 @@ const config: Config = {
           dim: "#C4C7C7", // muted body copy
           faint: "#8E9192", // labels, meta
         },
-        // Editorial accents — used as photo backdrops, never as flat UI chrome
+        /**
+         * Editorial accents. Originally "photo backdrops, never flat UI
+         * chrome" — that has not been true for a long time and the comment was
+         * misleading anyone who read it as a rule. `flare-orange` is the
+         * form-error colour across every account and checkout field,
+         * `flare-red` is the sale badge and the bag's savings figure, and
+         * `flare-orange-hot` is the progress arc on `BackToTop`.
+         *
+         * The rule that actually holds is narrower and worth keeping: one
+         * accent at a time, carrying one piece of information. They are signal,
+         * not decoration — never a surface, never a border for its own sake.
+         */
         flare: {
           red: "#C41E1E",
           "red-hot": "#E01414",

@@ -271,9 +271,36 @@ export async function createOrder(
       notes: { orderNumber },
     });
     if (result.ok) {
-      await prisma.order
-        .update({ where: { id: orderId }, data: { razorpayOrderId: result.value.id } })
-        .catch(() => {});
+      /**
+       * This one write is what maps their order back to ours, and its failure
+       * used to be discarded with an empty `.catch(() => {})`.
+       *
+       * A pool timeout or a cold connection here left a Razorpay order that is
+       * live and payable with nothing on our side pointing at it. The customer
+       * could pay in full and the webhook — which looked up orders only by
+       * `razorpayOrderId` — would find nothing and log `unknown-order`.
+       *
+       * Two things changed. The failure is logged loudly with both ids, so it
+       * is findable rather than invisible. And the webhook now falls back to
+       * the order number that Razorpay echoes back in `notes` and `receipt`,
+       * so the payment is still attributed and this column is backfilled on
+       * the way through. §29.
+       *
+       * Still not fatal to the checkout. The order exists and is correct; the
+       * customer can pay from the order page, which creates or reuses the
+       * Razorpay order and writes this column then.
+       */
+      try {
+        await prisma.order.update({
+          where: { id: orderId },
+          data: { razorpayOrderId: result.value.id },
+        });
+      } catch (error) {
+        console.error(
+          `[razorpay] FAILED to link order ${orderNumber} (id ${orderId}) to razorpay order ${result.value.id} — payment for it will be recovered via notes/receipt:`,
+          error,
+        );
+      }
     } else {
       console.error(`[razorpay] could not create order for ${orderNumber}: ${result.error}`);
     }

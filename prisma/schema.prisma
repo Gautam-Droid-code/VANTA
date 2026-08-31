@@ -423,8 +423,28 @@ model WebhookEvent {
 
   receivedAt DateTime @default(now())
 
+  /// When this event reached a **terminal** outcome — not when it arrived.
+  ///
+  /// The distinction is the whole point of the column. The row is inserted as
+  /// a *claim* the moment an event is accepted, because an insert against the
+  /// unique index is the only thing that beats a concurrent redelivery. But a
+  /// claim is not completion: a payment for an order that has not been written
+  /// yet, or one whose amount did not match, has been *seen* and not *acted
+  /// on*.
+  ///
+  /// Null therefore means "arrived, still owed work". Those rows are a
+  /// reconciliation queue — see `/admin/orders`. §29.
+  processedAt DateTime?
+
+  /// How many deliveries of this event have been processed. Only ever climbs
+  /// above 1 when an earlier attempt failed to reach a terminal outcome, which
+  /// makes it the signal for "this one keeps coming back".
+  attempts Int @default(0)
+
   @@unique([provider, eventKey])
   @@index([receivedAt])
+  /// Drives the reconciliation queue: unprocessed first, oldest first.
+  @@index([processedAt, receivedAt])
 }
 
 /// Work that must happen but must not block the customer.

@@ -82,19 +82,34 @@ export async function POST(request: Request) {
    * identical triple while a genuine next event does not. A hash of the body
    * would also work but would treat a reordered `scans` array as a new event.
    */
-  const eventKey = `${awb ?? orderRef}:${courierStatus ?? "?"}:${str(body.current_timestamp) ?? ""}`;
+  const eventKey = createHash("sha256")
+    .update(`${awb ?? orderRef}:${courierStatus ?? "?"}:${str(body.current_timestamp) ?? ""}`, "utf8")
+    .digest("hex");
+  const where = { provider_eventKey: { provider: "shiprocket", eventKey } };
 
+  /**
+   * Claimed, then stamped `processedAt` at the end — the same claim-then-
+   * complete shape as the payment webhook (§29), for the same reason: a row
+   * written before the work is a claim, not a completion, and treating the two
+   * as one thing is what let a payment go missing there.
+   *
+   * The stakes are much lower here — a dropped tracking update is a stale
+   * status line, not lost money — but sharing the table means sharing the
+   * convention. An unstamped row is what `/admin/orders` counts as owed work,
+   * so a route that never stamps would fill that queue with noise and make it
+   * useless for the case that does matter.
+   */
   try {
     await prisma.webhookEvent.create({
-      data: {
-        provider: "shiprocket",
-        eventKey: createHash("sha256").update(eventKey, "utf8").digest("hex"),
-        eventType: courierStatus,
-      },
+      data: { provider: "shiprocket", eventKey, eventType: courierStatus, attempts: 1 },
     });
   } catch (error) {
-    if (isUniqueViolation(error)) return NextResponse.json({ ok: true, duplicate: true });
-    throw error;
+    if (!isUniqueViolation(error)) throw error;
+
+    const existing = await prisma.webhookEvent.findUnique({ where });
+    if (existing?.processedAt) return NextResponse.json({ ok: true, duplicate: true });
+
+    await prisma.webhookEvent.update({ where, data: { attempts: { increment: 1 } } });
   }
 
   /**
@@ -115,6 +130,11 @@ export async function POST(request: Request) {
     // update for an unknown shipment usually means two environments sharing
     // one Shiprocket account.
     console.error("[shiprocket] tracking update for unknown shipment", awb ?? orderRef);
+    /**
+     * Left unprocessed, but still answered 200 — their docs require it, and a
+     * courier that stops sending tracking is worse than a stale row. The
+     * unstamped row is the record that something arrived we could not place.
+     */
     return NextResponse.json({ ok: true, ignored: "unknown-shipment" });
   }
 
@@ -130,6 +150,8 @@ export async function POST(request: Request) {
       ...(next ? { status: next } : {}),
     },
   });
+
+  await prisma.webhookEvent.update({ where, data: { processedAt: new Date() } });
 
   return NextResponse.json({ ok: true });
 }
