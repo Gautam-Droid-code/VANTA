@@ -1851,6 +1851,32 @@ you press it, it is telling you how much is left — which the page did not
 otherwise expose. It is the first consumer of `lib/useScrollProgress.ts`, which
 had been written and never used.
 
+**The dial is driven by a `MotionValue`, and that took two attempts.** The
+first version read the progress into React state and put a
+`transition-[stroke-dashoffset] duration-150` on the arc. It stuttered badly,
+and the reason is worth keeping because it generalises: **a CSS transition
+cannot smooth a value that changes every frame.** Each rAF tick handed the arc
+a new target, restarting a fresh 150ms ease-out from wherever the previous one
+had reached, so it never arrived anywhere — it just perpetually re-eased about
+150ms behind the scroll. Transitions are for occasional state changes. On top
+of that it re-rendered the component on every scroll frame, competing with
+Lenis and GSAP for the same budget.
+
+A spring is the right instrument because it is *re-targeted* rather than
+restarted: velocity carries across updates, so a stream of positions at 60fps
+resolves into one continuous movement. `lib/useScrollProgress.ts` gained
+`useScrollProgressValue()`, the same measurement published as a MotionValue,
+which Framer writes straight to the SVG node with no React render at all.
+Deliberately not Framer's `useScroll`: it measures through `ResizeObserver`,
+and one definition of "how far down are we" for the whole storefront is worth
+more than the import it saves.
+
+`scrollDial` in `lib/motion.ts` is overdamped (ratio 1.5) so the arc settles
+onto the value without crossing it — this reports a quantity the reader can see
+for themselves, and an indicator that wobbles past the truth is worse than one
+that arrives a moment late. The first tuning was ratio 1.86, far enough
+overdamped that it read as drag.
+
 **Scrolling has two regimes and they cannot be scrolled the same way.**
 `ScrollEngine` (Lenis + GSAP) is mounted by the homepage only, per §18. Lenis
 runs its own rAF loop with its own idea of where the page is, so a bare
@@ -1927,6 +1953,15 @@ claimed and is, on inspection of Lenis's source, true.
 The workaround is to patch `requestAnimationFrame` to a macrotask *before
 hydration* and dispatch synthetic scroll events. Patching afterwards does not
 work, because the latched `frame` id never clears.
+
+**That workaround has a hard limit: it cannot verify anything Framer animates.**
+Framer captures `requestAnimationFrame` when its module is evaluated, so its
+render batcher is bound to the frozen native one before any patch can land —
+MotionValues never flush to the DOM there, and the pane shows a dial stuck at
+its initial value however much you scroll. This applies to every Framer
+animation on the site, not just this control. Scroll-linked motion has to be
+checked in a real browser; the pane can confirm structure, attributes,
+contrast and event wiring, and nothing about how it moves.
 
 ## Known issues / follow-ups
 

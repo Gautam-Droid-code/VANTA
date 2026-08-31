@@ -1,10 +1,10 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useSpring, useTransform } from "framer-motion";
 import { useSyncExternalStore } from "react";
-import { duration, ease } from "@/lib/motion";
+import { duration, ease, scrollDial } from "@/lib/motion";
 import { scrollToTop } from "@/lib/scrollTo";
-import { useScrollProgress } from "@/lib/useScrollProgress";
+import { useScrollProgressValue } from "@/lib/useScrollProgress";
 import { useScrolled } from "@/lib/useScrolled";
 
 /**
@@ -21,8 +21,32 @@ import { useScrolled } from "@/lib/useScrolled";
  * you how much is left — which is information the page did not otherwise
  * expose.
  *
- * `lib/useScrollProgress.ts` already existed and was unused; this is its first
- * consumer.
+ * ## The dial is driven by a MotionValue, not by React state
+ *
+ * The first version read `lib/useScrollProgress.ts` into React state and put a
+ * `transition-[stroke-dashoffset] duration-150` on the arc. It stuttered
+ * badly, for two reasons that compound:
+ *
+ * - **A CSS transition cannot smooth a value that changes every frame.** Each
+ *   rAF tick handed the arc a new target, which restarted a fresh 150ms
+ *   ease-out from wherever the previous one had reached. The arc never arrived
+ *   anywhere; it just perpetually re-eased, roughly 150ms behind the scroll.
+ *   Transitions are for occasional state changes, not for a continuously
+ *   updated one.
+ * - **It re-rendered the whole component on every scroll frame**, competing
+ *   with Lenis and GSAP for the same frame budget on the homepage.
+ *
+ * A `MotionValue` fixes both. Framer writes it straight to the DOM node
+ * without a React render, and a spring is *designed* to be re-targeted
+ * continuously — it carries velocity across updates instead of restarting, so
+ * a stream of new targets reads as one continuous motion. That is exactly the
+ * shape of this problem.
+ *
+ * The value comes from `useScrollProgressValue` — the same measurement
+ * `lib/useScrollProgress.ts` has always made, published as a MotionValue
+ * rather than as React state. Framer's own `useScroll` would also work, but it
+ * measures through `ResizeObserver`, and keeping one definition of "how far
+ * down are we" for the whole storefront is worth more than the import it saves.
  */
 
 /** Geometry for a 48px dial. `r` leaves room for the 2px stroke. */
@@ -33,10 +57,12 @@ const CIRCUMFERENCE = 2 * Math.PI * R;
 /**
  * Roughly one viewport on a phone. Below this the control would be offering to
  * scroll somewhere the reader can already see, which is noise — and on a short
- * page it never appears at all, because `useScrollProgress` reports 0 for a
- * document that cannot scroll.
+ * page it never appears at all, because the progress measurement reports 0 for
+ * a document that cannot scroll.
  */
 const REVEAL_AFTER_PX = 600;
+
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -54,7 +80,8 @@ function subscribeToMotionPreference(onChange: () => void): () => void {
  * covers every Framer transition in the tree, so this control's entrance is
  * handled without asking. It cannot cover the **scroll**, which is not a
  * Framer animation at all — that decision has to be made here and handed to
- * `scrollToTop`. It also cannot cover the CSS transition on the progress arc.
+ * `scrollToTop`. Nor the spring on the progress arc, which is a MotionValue
+ * chain rather than a Framer *animation* — `reducedMotion` does not reach it.
  *
  * `useSyncExternalStore`, not state seeded by an effect — the same choice §21
  * records for the bag. A media query genuinely *is* an external store: it
@@ -70,11 +97,36 @@ function usePrefersReducedMotion(): boolean {
 }
 
 export function BackToTop() {
-  const progress = useScrollProgress();
   const visible = useScrolled(REVEAL_AFTER_PX);
   const reduced = usePrefersReducedMotion();
 
-  const percent = Math.round(progress * 100);
+  /** 0 → 1 down the document, as a MotionValue: no re-render per frame. */
+  const scrollYProgress = useScrollProgressValue();
+
+  /**
+   * Springs are re-targeted, not restarted. Each new scroll position becomes
+   * the spring's target while its current velocity is preserved, so a stream
+   * of targets at 60fps resolves into one continuous movement — the thing the
+   * CSS transition could not do.
+   *
+   * Under reduced motion the raw value is used instead, so the arc tracks the
+   * scroll exactly and nothing on the control is moving under its own
+   * momentum.
+   */
+  const smoothed = useSpring(scrollYProgress, scrollDial);
+  const tracked = reduced ? scrollYProgress : smoothed;
+
+  /**
+   * Clamped defensively. `scrollDial` is overdamped so it should never cross
+   * its target, and the measurement is already clamped to 0–1 — but iOS
+   * rubber-band overscroll reports a negative `scrollY`, and an arc rendered
+   * outside the ring is a visibly broken control for a value that costs
+   * nothing to bound.
+   */
+  const dashoffset = useTransform(tracked, (v) => CIRCUMFERENCE * (1 - clamp01(v)));
+  const percent = useTransform(tracked, (v) =>
+    String(Math.round(clamp01(v) * 100)).padStart(2, "0"),
+  );
 
   return (
     /**
@@ -123,7 +175,9 @@ export function BackToTop() {
               aria-hidden
               className="pointer-events-none hidden rounded-full border border-bone/40 bg-ink-raised px-2 py-1 text-[10px] font-bold uppercase leading-none tracking-[0.12em] text-bone opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100 sm:block"
             >
-              <span className="tabular-nums">{String(percent).padStart(2, "0")}</span>
+              {/* Also a MotionValue: the readout updates in step with the arc
+                  without dragging React into the scroll path. */}
+              <motion.span className="tabular-nums">{percent}</motion.span>
               <span className="text-bone/70">%</span>
             </span>
 
@@ -167,7 +221,7 @@ export function BackToTop() {
                   palette asks for — one signal colour, carrying the one piece
                   of live information.
                 */}
-                <circle
+                <motion.circle
                   cx={SIZE / 2}
                   cy={SIZE / 2}
                   r={R}
@@ -176,15 +230,16 @@ export function BackToTop() {
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeDasharray={CIRCUMFERENCE}
-                  strokeDashoffset={CIRCUMFERENCE * (1 - progress)}
-                  className={
-                    // The arc tracks a value the reader is already moving. Under
-                    // reduced motion it snaps instead, so nothing on the control
-                    // is animating of its own accord.
-                    reduced
-                      ? "text-flare-orange-hot"
-                      : "text-flare-orange-hot transition-[stroke-dashoffset] duration-150 ease-out"
-                  }
+                  /*
+                    Bound as a MotionValue through `style`, not as an attribute
+                    from React state — Framer writes it to the node directly and
+                    the component never re-renders while scrolling. There is no
+                    CSS transition here on purpose: the spring above is the
+                    smoothing, and a transition layered on top would fight it
+                    exactly as it did before.
+                  */
+                  style={{ strokeDashoffset: dashoffset }}
+                  className="text-flare-orange-hot"
                 />
               </svg>
 
