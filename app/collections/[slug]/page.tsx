@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -29,13 +30,29 @@ export async function generateMetadata({
   const { slug } = await params;
   const collection = await getCollection(slug);
   if (!collection) return { title: "Not found" };
-  return {
-    title: `${collection.category.name} — VANTA`,
-    // The editor's own words when there are any, rather than a generated count.
+
+  const { name } = collection.category;
+  const count = collection.products.length;
+
+  return pageMetadata({
+    title: name,
+    /**
+     * The editor's own words when there are any. The fallback is a real
+     * sentence rather than "12 pieces in Jackets" — a description that reads
+     * like a database row tells a searcher nothing and looks machine-made in a
+     * result list.
+     *
+     * The closing clause is "7-day returns", not "seven-day returns", and that
+     * is not a style preference. The sentence length varies with the category
+     * name and its count; measured across all nine collections, the numeral
+     * lands every one of them in 152–159 characters, while spelling the word
+     * out pushes the two longest past 160 and into a truncated result.
+     */
     description:
       collection.category.description ||
-      `${collection.products.length} pieces in ${collection.category.name}.`,
-  };
+      `${count} ${count === 1 ? "piece" : "pieces"} in VANTA's ${name} range — technical streetwear built for the Indian street. Cash on delivery pan-India, free shipping over ₹1,999, 7-day returns.`,
+    path: `/collections/${slug}`,
+  });
 }
 
 export default async function CollectionPage({

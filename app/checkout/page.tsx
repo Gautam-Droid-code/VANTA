@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { contentStore } from "@/lib/contentStore";
 import { hasDatabase, prisma } from "@/lib/db";
@@ -10,10 +11,13 @@ import { BottomNav } from "@/components/BottomNav";
 import { CheckoutForm } from "@/components/checkout/CheckoutForm";
 import { CheckoutSummary } from "@/components/checkout/CheckoutSummary";
 
-export const metadata: Metadata = {
-  title: "Checkout — VANTA",
-  robots: { index: false, follow: false },
-};
+export const metadata: Metadata = pageMetadata({
+  title: "Checkout",
+  description:
+    "Confirm your delivery address and pay by card, UPI, netbanking or cash on delivery. Prices are calculated fresh from the live catalogue.",
+  path: "/checkout",
+  noindex: true,
+});
 
 /**
  * Checkout.

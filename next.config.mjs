@@ -118,6 +118,35 @@ const SECURITY_HEADERS = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /**
+   * Stop announcing the framework in `X-Powered-By`.
+   *
+   * Next sends `X-Powered-By: Next.js` unless this is set. It tells an attacker
+   * which framework's advisories to try first and tells a visitor nothing, so
+   * it is pure downside — small downside, but free to remove.
+   *
+   * Worth being clear about the limit: this hides a header, not the framework.
+   * React is identifiable from the DOM and from the flight payload no matter
+   * what, and there is no SEO or security reason to try to hide it. No chunk
+   * renaming, no stripping of React attributes — that would cost real things
+   * (debuggability, cache keys) to buy nothing.
+   */
+  poweredByHeader: false,
+
+  /**
+   * Never ship browser source maps to production.
+   *
+   * This is already Next's default, and a build emits zero `.js.map` files
+   * under `.next/static` without it. It is set explicitly anyway: the default
+   * is a thing that can change between majors, and "someone turns this on to
+   * debug a production issue and forgets" is a realistic way for readable
+   * source to end up publicly served. An explicit `false` makes that a visible
+   * edit to this file rather than a silent inheritance.
+   *
+   * Server-side maps are unaffected — they never leave the server.
+   */
+  productionBrowserSourceMaps: false,
+
   experimental: {
     /**
      * Server Actions only accept calls whose Origin is one of these.

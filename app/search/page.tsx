@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { contentStore } from "@/lib/contentStore";
 import { searchCategories, searchProducts } from "@/lib/search";
@@ -8,12 +9,13 @@ import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { ProductCard } from "@/components/ProductCard";
 
-export const metadata: Metadata = {
-  title: "Search — VANTA",
-  // Results pages are generated from a query string; there is nothing here
-  // worth indexing, and thousands of near-identical URLs if it were.
-  robots: { index: false, follow: true },
-};
+export const metadata: Metadata = pageMetadata({
+  title: "Search",
+  description:
+    "Search the VANTA catalogue by piece, category or colour — shell jackets, parkas, cargo pants, tops and utility bags, all in one place.",
+  path: "/search",
+  noindex: true,
+});
 
 /**
  * Search results.

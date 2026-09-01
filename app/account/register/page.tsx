@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { redirect } from "next/navigation";
 import { contentStore } from "@/lib/contentStore";
 import { hasDatabase } from "@/lib/db";
@@ -9,10 +10,13 @@ import { BottomNav } from "@/components/BottomNav";
 import { RegisterForm } from "@/components/account/RegisterForm";
 import { AccountsUnavailable } from "@/components/account/AccountsUnavailable";
 
-export const metadata: Metadata = {
-  title: "Create an account — VANTA",
-  robots: { index: false, follow: true },
-};
+export const metadata: Metadata = pageMetadata({
+  title: "Create an account",
+  description:
+    "Create a VANTA account to track orders, save delivery addresses, and keep your bag and wishlist when you switch phone or laptop.",
+  path: "/account/register",
+  noindex: true,
+});
 
 export default async function RegisterPage({
   searchParams,

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { Suspense } from "react";
 import { contentStore } from "@/lib/contentStore";
 import { getCollectionLinks } from "@/lib/catalogue";
@@ -22,15 +23,23 @@ import { SortSelect } from "@/components/SortSelect";
  * it earns its own route rather than being a second name for a view.
  */
 export async function generateMetadata(): Promise<Metadata> {
-  const { collectionPage } = await contentStore.read();
-  return {
-    title: `${collectionPage.viewNames.all} — VANTA`,
-    description: "Every piece in the VANTA range.",
-    // The sorted variants are the same products in a different order. Without
-    // this, `?sort=price-asc` and `?sort=name` compete with each other in a
-    // search index for no benefit.
-    alternates: { canonical: "/products" },
-  };
+  const { collectionPage, products } = await contentStore.read();
+  return pageMetadata({
+    title: collectionPage.viewNames.all,
+    /**
+     * Counted from the catalogue rather than written as a number in a string,
+     * for the same reason category counts are derived (§30): a hand-typed
+     * figure in a meta description is a hand-typed figure that goes stale.
+     */
+    description: `Every piece VANTA makes — ${products.length} in total, from shell jackets and parkas to cargo pants, tops and utility bags. COD pan-India, free shipping over ₹1,999.`,
+    /**
+     * The sorted variants are the same products in a different order. Without
+     * this, `?sort=price-asc` and `?sort=name` compete with each other in a
+     * search index for no benefit. `pageMetadata` strips the query itself, so
+     * this cannot be got wrong by passing the live URL.
+     */
+    path: "/products",
+  });
 }
 
 export default async function AllProductsPage({

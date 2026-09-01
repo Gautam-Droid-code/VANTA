@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { contentStore } from "@/lib/contentStore";
@@ -21,6 +22,17 @@ export function generateStaticParams() {
   return policies.map((p) => ({ slug: p.slug }));
 }
 
+/**
+ * Appended to every policy intro. The intros are 80–98 characters on their own,
+ * which leaves most of a search result blank; this carries the two facts a
+ * person checking a shop's terms is actually looking for. Everything in it is
+ * a claim the storefront already makes on its own trust strip — no new facts
+ * are invented here, which matters because the policy copy itself is
+ * placeholder (see the file header in `data/policies.ts`).
+ */
+const POLICY_DESCRIPTION_SUFFIX =
+  "VANTA ships technical streetwear across India, with cash on delivery and free shipping over ₹1,999.";
+
 export async function generateMetadata({
   params,
 }: {
@@ -29,7 +41,22 @@ export async function generateMetadata({
   const { slug } = await params;
   const policy = policyBySlug[slug];
   if (!policy) return { title: "Not found" };
-  return { title: `${policy.title} — VANTA`, description: policy.intro };
+
+  return pageMetadata({
+    title: policy.title,
+    /**
+     * The page's own intro. These are short, so `pageMetadata` pads nothing —
+     * a description shorter than the ideal is better than one padded with
+     * filler, which is what a searcher notices.
+     *
+     * Indexable on purpose: shipping and returns terms are things people
+     * search for by name before buying, and they are the pages that answer
+     * "does this shop deliver to me". The copy is placeholder (§ known
+     * issues) but the *terms* in it match what the storefront claims.
+     */
+    description: `${policy.intro} ${POLICY_DESCRIPTION_SUFFIX}`,
+    path: `/${policy.slug}`,
+  });
 }
 
 export default async function PolicyRoute({

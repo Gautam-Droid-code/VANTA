@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { contentStore } from "@/lib/contentStore";
 import { leafCategories, withProductCounts } from "@/lib/catalogue";
 import { Navbar } from "@/components/Navbar";
@@ -7,8 +8,29 @@ import { BottomNav } from "@/components/BottomNav";
 import { CategoryList } from "@/components/CategoryList";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { collectionPage } = await contentStore.read();
-  return { title: `${collectionPage.indexHeading} — VANTA`, description: collectionPage.indexIntro };
+  const { collectionPage, homepage, products } = await contentStore.read();
+  const names = leafCategories(homepage.categories.items).map((c) => c.name);
+  return pageMetadata({
+    title: collectionPage.indexHeading,
+    /**
+     * The editor's own intro wins when there is one. The fallback names the
+     * actual categories rather than saying "browse our collections", because
+     * the category names are the words somebody would have searched for.
+     */
+    /**
+     * The editor's intro *plus* the category names, not one or the other.
+     * Measured: the intro alone rendered a 43-character description, which
+     * wastes most of the line a search result gives you. The category names
+     * are the words somebody would have typed, so they earn the space.
+     */
+    description: [
+      collectionPage.indexIntro,
+      `Browse ${names.join(", ")} — ${products.length} pieces built for the Indian street, with cash on delivery pan-India.`,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    path: "/collections",
+  });
 }
 
 /**

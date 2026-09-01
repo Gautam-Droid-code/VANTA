@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { contentStore } from "@/lib/contentStore";
@@ -12,10 +13,13 @@ import { AddressBook } from "@/components/account/AddressBook";
 import { OrderHistory } from "@/components/account/OrderHistory";
 import { signOutAction } from "./actions";
 
-export const metadata: Metadata = {
-  title: "Your account — VANTA",
-  robots: { index: false, follow: true },
-};
+export const metadata: Metadata = pageMetadata({
+  title: "Your account",
+  description:
+    "Your VANTA order history, saved delivery addresses and account details, with tracking for anything currently on its way to you.",
+  path: "/account",
+  noindex: true,
+});
 
 /**
  * The account page.

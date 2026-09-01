@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { contentStore } from "@/lib/contentStore";
+import { pageMetadata } from "@/lib/seo";
 import { leafCategories, withProductCounts } from "@/lib/catalogue";
 import { Navbar } from "@/components/Navbar";
 import { Hero } from "@/components/Hero";
@@ -15,6 +17,31 @@ import { PinnedHero } from "@/components/scroll/PinnedHero";
 import { ParallaxGroup } from "@/components/scroll/Parallax";
 import { TiltOnScroll } from "@/components/scroll/TiltOnScroll";
 import { ChapterIndex } from "@/components/scroll/ChapterIndex";
+
+/**
+ * The homepage was the **only** non-admin route with no metadata of its own.
+ *
+ * It inherited `title.default` from the root layout, which meant the most
+ * important page on the site had the least specific title and no canonical at
+ * all — so `/?utm_source=…` and `/` competed as separate URLs.
+ *
+ * The title leads with what VANTA sells rather than the brand name: somebody
+ * searching "technical streetwear india" has never heard of us, and a title
+ * that opens with a word they did not search for wastes the only line they
+ * read.
+ *
+ * The brand is written in explicitly, unlike every other route. `title.template`
+ * only applies to **child** segments, and `app/page.tsx` shares the root
+ * segment with `app/layout.tsx` — measured, the rendered title came out as
+ * "Technical Streetwear, Made in Mumbai" with no brand at all. Every other page
+ * gets the suffix from the template and must not repeat it.
+ */
+export const metadata: Metadata = pageMetadata({
+  title: "Technical Streetwear, Made in Mumbai | VANTA",
+  description:
+    "Shell jackets, cargo pants and utility rigs built for the Indian street. Cash on delivery pan-India, free shipping over ₹1,999, seven-day returns.",
+  path: "/",
+});
 
 /**
  * The homepage is a thin composition layer: it reads the published content from

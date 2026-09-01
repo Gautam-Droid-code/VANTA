@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { redirect } from "next/navigation";
 import { contentStore } from "@/lib/contentStore";
 import { hasDatabase } from "@/lib/db";
@@ -9,10 +10,13 @@ import { BottomNav } from "@/components/BottomNav";
 import { SignInForm } from "@/components/account/SignInForm";
 import { AccountsUnavailable } from "@/components/account/AccountsUnavailable";
 
-export const metadata: Metadata = {
-  title: "Sign in — VANTA",
-  robots: { index: false, follow: true },
-};
+export const metadata: Metadata = pageMetadata({
+  title: "Sign in",
+  description:
+    "Sign in to your VANTA account to see your order history, track a delivery, and keep your bag and wishlist across devices.",
+  path: "/account/login",
+  noindex: true,
+});
 
 /**
  * Sign in.

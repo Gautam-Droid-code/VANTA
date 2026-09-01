@@ -14,10 +14,20 @@ import { OrderPlaced } from "@/components/OrderPlaced";
 import { RazorpayPayButton } from "@/components/checkout/RazorpayPayButton";
 import { isRazorpayConfigured } from "@/lib/payments/razorpay";
 
+/**
+ * Someone's name, address, phone and what they bought. Never indexed, never
+ * followed — and the guest link is an unguessable HMAC, so a crawler that did
+ * reach one would have been handed it.
+ *
+ * No canonical, deliberately, and this is the one route where that is right:
+ * a canonical is a request to index *something*, and there is no version of
+ * this page that should be in an index. `noindex` and a canonical together are
+ * a contradictory instruction.
+ */
 export const metadata: Metadata = {
-  // Someone's address and what they bought. Never indexed, never followed.
   robots: { index: false, follow: false },
-  title: "Your order — VANTA",
+  title: "Your order",
+  description: "Your VANTA order — items, delivery address, payment status and courier tracking.",
 };
 
 const STATUS_LABELS: Record<string, string> = {

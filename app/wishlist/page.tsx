@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { contentStore } from "@/lib/contentStore";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { WishlistContents } from "@/components/WishlistContents";
 
-export const metadata: Metadata = {
-  title: "Wishlist — VANTA",
-  // Personal to the visitor, and nothing here belongs in a search index.
-  robots: { index: false, follow: true },
-};
+export const metadata: Metadata = pageMetadata({
+  title: "Wishlist",
+  description:
+    "Pieces you have saved for later. Kept in this browser, and synced to your account when you are signed in so they follow you between devices.",
+  path: "/wishlist",
+  noindex: true,
+});
 
 /**
  * The wishlist. Same arrangement as the bag: a server component that reads the

@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { contentStore } from "@/lib/contentStore";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { BagContents } from "@/components/BagContents";
 
-export const metadata: Metadata = {
-  title: "Bag — VANTA",
-  // The bag is personal to the visitor, and there is nothing here worth
-  // putting in a search index.
-  robots: { index: false, follow: true },
-};
+export const metadata: Metadata = pageMetadata({
+  title: "Bag",
+  description:
+    "The pieces you have chosen, with a delivery estimate for your pincode. Cash on delivery pan-India and free shipping on orders over ₹1,999.",
+  path: "/bag",
+  noindex: true,
+});
 
 /**
  * The bag.

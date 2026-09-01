@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import type { Product } from "@/data/types";
+import { pageMetadata } from "@/lib/seo";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -27,7 +29,42 @@ export async function generateMetadata({
   const { slug } = await params;
   const product = await getProduct(slug);
   if (!product) return { title: "Not found" };
-  return { title: `${product.name} — VANTA`, description: product.image.alt };
+
+  const { homepage } = await contentStore.read();
+  const category = homepage.categories.items.find((c) => c.id === product.categoryId);
+
+  return pageMetadata({
+    title: product.name,
+    /**
+     * Built from the product, not from `product.image.alt`.
+     *
+     * The alt text was the description until now, and it describes the
+     * *photograph* — "technical shell jacket on a red backdrop" — of a
+     * stand-in image at that (§12). It named neither the garment, the category
+     * nor the price, which are the three things somebody scanning a search
+     * result is actually deciding on.
+     *
+     * The price is the live one, so it matches the page and the Product
+     * JSON-LD. It stays correct because publishing revalidates this route.
+     */
+    description: describeProduct(product, category?.name),
+    path: `/products/${product.id}`,
+  });
+}
+
+/** Kept out of `generateMetadata` so the shape of the sentence is readable. */
+function describeProduct(product: Product, categoryName: string | undefined): string {
+  const where = categoryName ? `${categoryName.toLowerCase()} from VANTA` : "from VANTA";
+  /**
+   * The closing clause differs by whether COD is offered, and both branches are
+   * written to land the whole sentence in the 140–160 range — measured, not
+   * guessed. The no-COD branch was 131 characters when it simply omitted the
+   * clause, which reads as a truncated thought in a result list.
+   */
+  const close = product.codAvailable
+    ? "Cash on delivery available, free shipping over ₹1,999."
+    : "Free shipping over ₹1,999, with seven-day returns.";
+  return `${product.name} — ${where}, ${formatINR(product.price)}. Technical streetwear built for the Indian street. ${close}`;
 }
 
 export default async function ProductPage({
