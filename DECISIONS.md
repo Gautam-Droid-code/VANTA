@@ -2130,6 +2130,158 @@ It checks links **in content**. A dead `href` hard-coded in a component is
 invisible to it, and so is a link whose target exists but renders an error. It
 covers the case that has now bitten twice; it is not a crawler.
 
+## 32. Crawlable surface: sitemap, robots, llms.txt, 404 and breadcrumbs
+
+Phase 3 of the SEO pass. Four things the site had none of, plus one thing it had
+two copies of.
+
+### `lastModified` is a real timestamp or it is absent
+
+The usual sitemap shortcut is `lastModified: new Date()` on every entry, which
+claims the entire site changed at the moment of the fetch. It is not merely
+useless — it is why crawlers learn to ignore the field.
+
+Two real sources are used instead, and neither existed before:
+
+- `ContentStore.publishedAt()` was added to the interface. The file adapter
+  returns the document's mtime, the Postgres adapter returns `savedAt` on the
+  published row. That is the moment an editor last pressed Publish, which is
+  genuinely when every content-derived page last changed.
+- Policy pages carry their own `updated` string — "Last updated 28 August 2026"
+  — which is a date a human maintains and which the page itself displays. It is
+  parsed, and an unparseable string yields no `lastModified` rather than a
+  guess.
+
+Verified distinct in the output: catalogue entries carry the publish time, and
+`/returns` carries `2026-08-28T00:00:00.000Z`.
+
+### The sitemap is the mirror of the `noindex` decisions
+
+59 URLs: home, both listings, nine collections, two synthetic views, 45
+products, four policy pages. Nothing that carries `noindex` in `lib/seo.ts`
+appears. A sitemap that advertises a URL whose own metadata refuses indexing
+hands a crawler two contradictory instructions about one page, and it is the
+sitemap that looks wrong.
+
+### `siteUrlIsPlaceholder`, and a lesson about when it is evaluated
+
+`robots.ts` and `sitemap.ts` both refuse to emit absolute URLs when
+`NEXT_PUBLIC_SITE_URL` is unset. A `Sitemap:` line pointing at
+`http://localhost:3000` is worse than none: it is a live, cacheable instruction
+that resolves to nothing, and a crawler cannot tell it from a real one.
+
+Worth recording how that was verified, because the first attempt was wrong.
+Setting the variable at `next start` did **not** produce a `Sitemap:` line —
+`robots.ts` renders as a static route, `NEXT_PUBLIC_*` is inlined at build time,
+so the guard had already fired during the build. The variable has to be present
+when the site is *built*, not when it is served. The guard was working
+correctly; the test was not.
+
+### `llms.txt`, generated rather than written
+
+Plural, per llmstxt.org; `/llm.txt` is a redirect so there is one document and
+one URL that owns it.
+
+Generated from the live content store for the same reason category counts are
+derived (§30): a hand-written summary of a catalogue is a copy of the catalogue,
+and it drifts. Every count, category name and price range in it is read at
+request time.
+
+It contains **no invented business facts** — no address, no GSTIN, no phone
+number, no founding date. Those are exactly the details `data/policies.ts`
+admits are placeholder, and a machine-readable file is the worst possible place
+to launder them into something that reads as authoritative. It also states that
+the policy copy is unreviewed, rather than presenting it as settled terms.
+
+### The 404: a real status, and a framework limitation worth knowing
+
+There was no `app/not-found.tsx` at all, so Next's default was shipping — an
+unstyled white page on a site that is otherwise bone-on-ink, which reads as
+"this site is broken" rather than "that page does not exist".
+
+The replacement is built to be useful rather than decorative: a search box that
+hands off to the real `/search`, the live categories with their real counts, and
+routes back into the catalogue. It returns a genuine **404**, verified on three
+paths — an unmatched URL, an unknown product, an unknown collection.
+
+**But its body is not in the server-rendered HTML.** Measured: the response is
+`<html id="__next_error__">` with an empty `<body>`, and the content arrives in
+the flight payload for the client to render. A minimal `not-found.tsx`
+containing nothing but an `<h1>` behaves identically, so this is Next 16.3.1's
+behaviour and not something in this code.
+
+The installed docs
+(`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/not-found.md`)
+document `global-not-found.js` as the routing-level alternative that returns a
+full HTML document. **It was deliberately not enabled**, for three reasons in
+increasing order of weight:
+
+1. It is experimental in this version (`experimental.globalNotFound`, default
+   false).
+2. It bypasses the root layout, so the navbar, footer and global styles would
+   have to be re-imported by hand — and the navbar and footer are most of what
+   makes the page useful.
+3. Decisively: it only covers **unmatched URLs**. A `notFound()` call from a
+   matched route — `/products/nonexistent`, the more common case by far —
+   still renders through `not-found.tsx` and would still be client-rendered.
+   Enabling an experimental flag to fix half the cases is a bad trade.
+
+The SEO cost is nil, which is why this is acceptable rather than a defect: the
+response is a 404, and Next automatically injects `<meta name="robots"
+content="noindex">` on it — confirmed in the output. A page that must not be
+indexed does not need its body in the HTML. A human with JavaScript sees the
+full page.
+
+### Error boundaries existed nowhere
+
+`app/error.tsx` and `app/global-error.tsx` were both absent, so any unhandled
+runtime error showed Next's default screen with no route back into the site.
+
+`error.tsx` is deliberately self-contained — no `Navbar`, no `Footer`, no
+content-store read. It catches errors thrown by the very components it would
+otherwise render, and a boundary that depends on what just failed is a boundary
+that throws inside itself.
+
+`global-error.tsx` is the only file in this codebase where hard-coded hex is
+correct. It replaces `<html>` and `<body>`, which means it runs when the root
+layout failed — so the stylesheet and font variables may never have been
+applied, and a Tailwind class that resolves to nothing would render black on
+white. The values match the `ink` and `bone` tokens and are duplicated on
+purpose: this page is what is left when the design system is gone.
+
+Both surface `error.digest` visibly. It is a hash, not a stack trace — nothing
+leaks — and it matches a server log line exactly, which turns "it broke" into
+something traceable.
+
+### Breadcrumbs: one array, two outputs
+
+The product and collection pages each hand-rolled their own trail markup; policy
+pages had none. Adding `BreadcrumbList` JSON-LD to hand-rolled markup would have
+created two independent descriptions of one trail, and Google's guidelines
+require the markup to match what a person sees — a mismatch is a violation, not
+a cosmetic bug.
+
+`components/Breadcrumbs.tsx` takes one `trail` array and renders both the
+visible `<ol>` and the JSON-LD from it, so they cannot diverge. Verified equal on
+all three page types.
+
+It is an ordered list rather than the loose spans it replaces: the order is the
+meaning, and `<ol>` is what tells a screen reader "item 2 of 3" instead of
+reading a run of unrelated links. The current page is marked `aria-current`.
+
+### Internal links: measured, not asserted
+
+A crawl of all 59 sitemap URLs plus the three private shell pages, collecting
+every internal `href` from the rendered HTML:
+
+**Zero orphans, and zero pages with only one inbound link.**
+
+The one genuine gap it exposed was `/collections/new` and `/collections/sale`:
+both are real, indexable, in the sitemap, and were reachable only from the
+navbar — from the chrome rather than from any page *about* browsing. They now
+have a "More ways in" block on `/collections`, which is the page a crawler
+following "Collections" actually lands on.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items

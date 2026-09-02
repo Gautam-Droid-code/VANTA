@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { contentStore } from "@/lib/contentStore";
 import { getAllCollectionSlugs, getCollection, getCollectionLinks } from "@/lib/catalogue";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
@@ -77,16 +78,17 @@ export default async function CollectionPage({
 
       <main id="main" className="pt-[calc(var(--header-h)+2rem)]">
         <header className="px-gutter lg:px-gutter-lg">
-          {/* Where you are, in the site's own spec-sheet voice. */}
-          <nav aria-label="Breadcrumb" className="eyebrow">
-            <Link href="/" className="transition-colors hover:text-bone">
-              Home
-            </Link>
-            <span aria-hidden className="px-2">
-              /
-            </span>
-            <span className="text-bone/80">{category.name}</span>
-          </nav>
+          {/* Where you are, in the site's own spec-sheet voice. "Collections"
+              sits between Home and the category because that page genuinely
+              exists and is genuinely the parent — a trail that skips a real
+              level is a trail that lies about the site's shape. */}
+          <Breadcrumbs
+            trail={[
+              { name: "Home", href: "/" },
+              { name: "Collections", href: "/collections" },
+              { name: category.name },
+            ]}
+          />
 
           {/* Optional wide image. Absent for most collections, and the plain
               heading below is the complete design when it is. */}

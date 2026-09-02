@@ -57,6 +57,19 @@ export class PrismaContentStore implements ContentStore {
     });
   }
 
+  /**
+   * `savedAt` on the published row. `@updatedAt` moves it on every publish,
+   * so it is exactly the timestamp the sitemap wants. See the interface for
+   * why this is not `new Date()`.
+   */
+  async publishedAt(): Promise<Date | null> {
+    const row = await prisma.contentDocument.findUnique({
+      where: { key: PUBLISHED_KEY },
+      select: { savedAt: true },
+    });
+    return row?.savedAt ?? null;
+  }
+
   async readDraft(): Promise<DraftRecord | null> {
     const row = await prisma.contentDocument.findUnique({
       where: { key: DRAFT_KEY },

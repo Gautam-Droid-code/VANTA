@@ -12,6 +12,7 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { ProductCard } from "@/components/ProductCard";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { AddToBagButton } from "@/components/AddToBagButton";
 import { PincodeCheck } from "@/components/shipping/PincodeCheck";
 import { SaveButton } from "@/components/SaveButton";
@@ -110,21 +111,15 @@ export default async function ProductPage({
           </div>
 
           <div className="px-gutter py-8 lg:px-0 lg:py-0 lg:self-center">
-            <nav aria-label="Breadcrumb" className="eyebrow">
-              <Link href="/" className="transition-colors hover:text-bone">
-                Home
-              </Link>
-              <span aria-hidden className="px-2">/</span>
-              {category ? (
-                <>
-                  <Link href={category.href} className="transition-colors hover:text-bone">
-                    {category.name}
-                  </Link>
-                  <span aria-hidden className="px-2">/</span>
-                </>
-              ) : null}
-              <span className="text-bone/80">{product.name}</span>
-            </nav>
+            {/* Visible trail and BreadcrumbList JSON-LD from one array, so
+                the markup cannot disagree with what is on screen. */}
+            <Breadcrumbs
+              trail={[
+                { name: "Home", href: "/" },
+                ...(category ? [{ name: category.name, href: category.href }] : []),
+                { name: product.name },
+              ]}
+            />
 
             <h1 className="headline mt-4 text-display-sm lg:text-[3rem] lg:leading-[0.9]">
               {product.name}

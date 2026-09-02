@@ -7,7 +7,7 @@
  */
 import "server-only";
 
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { homepage as seedHomepage } from "@/data/homepage";
 import { collectionPage as seedCollectionPage } from "@/data/collectionPage";
@@ -42,6 +42,21 @@ export interface DraftRecord {
 export interface ContentStore {
   read(): Promise<SiteContent>;
   write(next: SiteContent): Promise<void>;
+
+  /**
+   * When the published content was last written, or null if it never has been.
+   *
+   * Exists for `app/sitemap.ts`. A sitemap that stamps `new Date()` on every
+   * entry tells a crawler "everything changed just now" on every fetch, which
+   * is indistinguishable from telling it nothing — it is the reason
+   * `lastModified` gets ignored. This is the real timestamp: the moment an
+   * editor last pressed Publish, which is genuinely when every
+   * content-derived page last changed.
+   *
+   * Null rather than a guess when nothing has been published. The sitemap then
+   * omits `lastModified` for those entries, which is honest.
+   */
+  publishedAt(): Promise<Date | null>;
 
   /**
    * The unpublished draft, or null when there isn't one.
@@ -110,6 +125,17 @@ class FileContentStore implements ContentStore {
     const tmp = `${target}.${process.pid}.tmp`;
     await writeFile(tmp, body, "utf8");
     await rename(tmp, target);
+  }
+
+  /** The document's mtime. `rename` updates it, so it is the publish time. */
+  async publishedAt(): Promise<Date | null> {
+    try {
+      return (await stat(this.file)).mtime;
+    } catch {
+      // Never published: `/data` is the state, and it has no timestamp of its
+      // own that means anything to a crawler.
+      return null;
+    }
   }
 
   async read(): Promise<SiteContent> {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { contentStore } from "@/lib/contentStore";
 import { policies, policyBySlug } from "@/data/policies";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
@@ -77,6 +78,9 @@ export default async function PolicyRoute({
       <main id="main" className="pt-[calc(var(--header-h)+2rem)]">
         <article className="mx-auto max-w-2xl px-gutter pb-20 lg:px-gutter-lg lg:pb-28">
           <header className="border-b border-ink-line pb-8">
+            {/* Policy pages had no trail at all, which left them feeling like
+                orphans reached only from the footer. */}
+            <Breadcrumbs trail={[{ name: "Home", href: "/" }, { name: policy.title }]} className="mb-4" />
             <h1 className="headline text-display-sm lg:text-display-md">{policy.title}</h1>
             <p className="eyebrow mt-4">{policy.updated}</p>
             <p className="mt-5 max-w-prose text-base leading-relaxed text-bone/70">

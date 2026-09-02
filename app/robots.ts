@@ -1,0 +1,58 @@
+import type { MetadataRoute } from "next";
+import { siteUrl, siteUrlIsPlaceholder } from "@/lib/siteUrl";
+
+/**
+ * robots.txt.
+ *
+ * The disallow list mirrors the `noindex` routes in `lib/seo.ts`, and the two
+ * do different jobs rather than duplicating each other: `noindex` stops a page
+ * being *listed*, this stops it being *fetched*. Both are wanted here. An order
+ * page is not merely uninteresting to a crawler — it holds somebody's name,
+ * address and phone number, and the cheapest protection is for the crawler
+ * never to request it.
+ *
+ * `/api` is disallowed for a different reason again: those routes take webhooks
+ * and run scheduled work. Nothing good comes of a crawler probing them, and
+ * they answer with real HTTP status codes that a crawler will happily retry.
+ */
+
+/**
+ * Refuses to emit anything pointing at localhost.
+ *
+ * With no `NEXT_PUBLIC_SITE_URL`, `siteUrl` resolves to `http://localhost:3000`
+ * and every absolute URL this file can build is wrong. A robots.txt whose
+ * `Sitemap:` line points at localhost is worse than none at all: it is a live,
+ * cacheable instruction that resolves to nothing, and the crawler has no way to
+ * tell it apart from a real one. `lib/siteUrl.ts` exposes the flag precisely so
+ * this decision can be made rather than assumed.
+ *
+ * The fallback still disallows everything private, so a deployment that forgets
+ * the variable is under-configured rather than exposed.
+ */
+export default function robots(): MetadataRoute.Robots {
+  const disallow = [
+    "/admin",
+    "/checkout",
+    "/account",
+    "/orders",
+    "/bag",
+    "/wishlist",
+    "/api",
+    /**
+     * Not a page — Next's data endpoint for client-side navigation. It serves
+     * the same content as the HTML in a format only the router understands, so
+     * every crawl of it is a duplicate fetch of something already crawlable.
+     */
+    "/_next/",
+  ];
+
+  if (siteUrlIsPlaceholder) {
+    return { rules: [{ userAgent: "*", allow: "/", disallow }] };
+  }
+
+  return {
+    rules: [{ userAgent: "*", allow: "/", disallow }],
+    sitemap: `${siteUrl}/sitemap.xml`,
+    host: siteUrl,
+  };
+}

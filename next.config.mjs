@@ -257,6 +257,12 @@ const nextConfig = {
        * by browsers effectively for ever, and a future Series 026 collection
        * page would then be unreachable for anyone who had followed this once.
        */
+      /**
+       * The convention is `llms.txt`, plural (llmstxt.org). `/llm.txt` is a
+       * common mistranscription, so it is aliased rather than served — one
+       * document, one URL that owns it, and no chance of the two drifting.
+       */
+      { source: "/llm.txt", destination: "/llms.txt", permanent: false },
       {
         source: "/collections/series-026",
         destination: "/products/series-026-field-parka",

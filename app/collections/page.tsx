@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { contentStore } from "@/lib/contentStore";
 import { leafCategories, withProductCounts } from "@/lib/catalogue";
@@ -63,6 +64,37 @@ export default async function CollectionsPage() {
           heading=""
           items={leafCategories(withProductCounts(homepage.categories.items, products))}
         />
+
+        {/*
+          Cross-links to the two synthetic collections and the full listing.
+          `/collections/new` and `/collections/sale` are real, indexable pages
+          in the sitemap, but the only route into them was the navbar — which
+          made them close to orphans, reachable from the chrome rather than
+          from the page that is *about* browsing. This is the page a crawler
+          following "Collections" lands on, so it is where they belong.
+        */}
+        <nav aria-labelledby="more-ways" className="px-gutter pb-20 lg:px-gutter-lg lg:pb-28">
+          <h2 id="more-ways" className="eyebrow">
+            More ways in
+          </h2>
+          <ul className="mt-4 divide-y divide-ink-line border-y border-ink-line">
+            {[
+              { href: "/collections/new", label: "New drops", note: "Recently added" },
+              { href: "/collections/sale", label: "Sale", note: "Reduced pieces" },
+              { href: "/products", label: collectionPage.viewNames.all, note: `All ${products.length} pieces` },
+            ].map((item) => (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className="flex items-baseline justify-between gap-4 py-4 transition-opacity hover:opacity-70"
+                >
+                  <span className="text-sm text-bone">{item.label}</span>
+                  <span className="text-label font-bold uppercase text-bone-faint">{item.note}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </main>
 
       <Footer content={homepage.footer} />
