@@ -15,8 +15,30 @@
  * legitimately point a link at a product they are about to add, and failing
  * their publish for it would be worse than telling them afterwards. This is
  * cheap to run in CI or before a deploy, and it reads the same store the
- * storefront does — file or Postgres, whichever is configured — so it is
- * checking what is actually served.
+ * storefront does — file or Postgres, whichever is configured.
+ *
+ * ## Why it refuses to pass ambiguously — §34
+ *
+ * "Reads the same store the storefront does" was true of the code and false in
+ * practice, because **the store is chosen from the environment at the moment
+ * this runs**. `selectStore()` picks Postgres only when `DATABASE_URL` is
+ * visible; otherwise it silently returns the file adapter, which on a fresh
+ * checkout finds no `.content/site.json` and falls back to the `/data` seed.
+ *
+ * On Vercel that is not hypothetical. Build-time and runtime environment
+ * variables are separate scopes, and it is easy to set `DATABASE_URL` for one
+ * and not the other. The check would then validate the seed, print "all
+ * resolve", and pass green — while the published document it was invoked to
+ * verify went entirely unread. That is the §31 failure reintroduced by the tool
+ * written to prevent it, and a silent pass is worse than no check at all.
+ *
+ * So it now reports what it read, and separates two states that look identical
+ * from outside:
+ *
+ * - **Nothing has ever been published.** The seed genuinely *is* what will be
+ *   served. Legitimate — passes, and says so.
+ * - **A database was expected and could not be reached.** Fails loudly, having
+ *   checked nothing, because passing would be a lie.
  *
  * Run through `tsx --conditions=react-server`, which is what makes the
  * `import "server-only"` guard inside `lib/contentStore.ts` resolve to a no-op.
@@ -25,7 +47,7 @@
  * sidesteps the same problem by reading the JSON itself, which is why that
  * script cannot see a Postgres-backed store and this one can.
  */
-import { contentStore } from "../lib/contentStore";
+import { contentStore, describeContentStore } from "../lib/contentStore";
 
 /** Routes that exist as files rather than as content. */
 const STATIC_ROUTES = new Set([
@@ -75,7 +97,69 @@ function collectHrefs(node: unknown, path: string, out: Found[]): void {
   }
 }
 
+/**
+ * Whether this looks like an unattended build rather than somebody's laptop.
+ *
+ * The distinction decides what an absent database *means*. Locally it usually
+ * means "I have not set one up", which is normal and fine. In a deploy context
+ * it far more often means "it is set at runtime and the build scope was
+ * missed" — the silent pass this guard exists to stop.
+ */
+function isDeployContext(): boolean {
+  return Boolean(process.env.VERCEL || process.env.CI);
+}
+
+const HR = "─".repeat(64);
+
 async function main(): Promise<void> {
+  const store = describeContentStore();
+
+  /**
+   * Read first, and never inside a catch that swallows. A Postgres store that
+   * cannot be reached has to surface as a failure — the one thing this script
+   * must never do is quietly examine something else instead.
+   */
+  let publishedAt: Date | null;
+  try {
+    publishedAt = await contentStore.publishedAt();
+  } catch (error) {
+    console.error(HR);
+    console.error(`FAILED — the ${store.driver} content store could not be reached.`);
+    console.error(`  location: ${store.location}`);
+    console.error("");
+    console.error("Nothing was checked. This is a failure rather than a skip: passing here");
+    console.error("would report a green link check on content nobody read. DECISIONS §34.");
+    console.error(HR);
+    console.error(error);
+    process.exitCode = 1;
+    return;
+  }
+
+  /**
+   * The seed is about to be validated instead of a published document. Whether
+   * that is honest depends entirely on why.
+   */
+  const seedIsLive = publishedAt === null;
+  if (seedIsLive && store.driver === "file" && !store.explicit && isDeployContext()) {
+    console.error(HR);
+    console.error("FAILED — no published content, and no database configured.");
+    console.error(`  driver:    file (inferred — DATABASE_URL is not set here)`);
+    console.error(`  looked in: ${store.location}`);
+    console.error("");
+    console.error("In a deploy context this almost always means DATABASE_URL is set for");
+    console.error("runtime but not for the BUILD environment — separate scopes on Vercel.");
+    console.error("Left alone, this check would have validated the /data seed and passed");
+    console.error("while the document actually served went unread. §31, §34.");
+    console.error("");
+    console.error("Fix one of these:");
+    console.error("  - add DATABASE_URL to the build environment; or");
+    console.error("  - if this deployment genuinely has no database and serves the seed,");
+    console.error("    say so explicitly with CONTENT_STORE_DRIVER=file.");
+    console.error(HR);
+    process.exitCode = 1;
+    return;
+  }
+
   const { homepage, collectionPage, products } = await contentStore.read();
 
   const categoryIds = new Set(homepage.categories.items.map((c) => c.id));
@@ -101,18 +185,34 @@ async function main(): Promise<void> {
   const dead = found.filter((f) => !resolves(f.href));
   const unique = new Set(found.map((f) => f.href));
 
-  console.log(`Checked ${unique.size} distinct internal links in the published content.`);
+  /**
+   * Provenance is printed on every run, pass or fail. A green link check that
+   * does not say what it read is a green link check you cannot act on — which
+   * was the entire defect §34 fixed.
+   */
+  const read =
+    publishedAt === null
+      ? "the /data seed — nothing has been published, so the seed IS what gets served"
+      : `the published document (published ${publishedAt.toISOString()})`;
+
+  console.log(`Store:   ${store.driver}${store.explicit ? " (explicit)" : ""} — ${store.location}`);
+  console.log(`Read:    ${read}`);
+  console.log(`Checked: ${unique.size} distinct internal links`);
 
   if (dead.length === 0) {
-    console.log("All resolve.");
+    console.log("Result:  all resolve.");
     return;
   }
 
-  console.error(`\n${dead.length} dead link${dead.length === 1 ? "" : "s"}:`);
+  console.error("");
+  console.error(`${dead.length} dead link${dead.length === 1 ? "" : "s"}:`);
   for (const { href, at } of dead) console.error(`  ${href}\n    at ${at}`);
+  console.error("");
   console.error(
-    "\nThese are in the PUBLISHED content. Editing /data will not fix them — " +
-      "change them in /admin and publish, or they stay dead. DECISIONS §31.",
+    seedIsLive
+      ? "These are in the /data seed. Fix them there — nothing has been published yet."
+      : "These are in the PUBLISHED content. Editing /data will not fix them — " +
+          "change them in /admin and publish, or they stay dead. DECISIONS §31.",
   );
   process.exitCode = 1;
 }

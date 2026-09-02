@@ -19,7 +19,7 @@ be left unset on purpose?**
 
 | Variable | Why |
 |---|---|
-| `DATABASE_URL` | Pooled connection. Without it there are no accounts, no orders, no checkout, and content falls back to the `/data` seed. |
+| `DATABASE_URL` | Pooled connection. Without it there are no accounts, no orders, no checkout, and content falls back to the `/data` seed. **Set it for the build environment too** — see §2. |
 | `DIRECT_DATABASE_URL` | Unpooled, for `prisma migrate` only. Needed wherever the two differ (Neon, Supabase, PgBouncer) — a transaction-mode pooler cannot hold the advisory lock a migration takes. |
 | `ADMIN_USERNAME` | Sign-in at `/admin/login`. |
 | `ADMIN_PASSWORD` | Sign-in at `/admin/login`. Use something long. |
@@ -98,21 +98,81 @@ unavailable rather than pretending.
 npm run predeploy
 ```
 
-Runs ESLint and `content:check-links`, which walks every internal link in the
-**published** content and fails on any that 404s.
+Two checks, with **different severities on purpose** (§34):
 
-That check exists because a dead link on the homepage shipped twice — and the
-second time only because the first fix edited `/data`, which is the seed and not
-what a published site reads (§31). It is now wired into `vercel.json`'s
-`buildCommand`, so a Vercel deploy runs it automatically and a dead link fails
-the build rather than reaching a client. Running it locally first just saves you
-the round trip.
+| Check | Local | Preview deploy | Production deploy |
+|---|---|---|---|
+| `content:check-links` | fatal | fatal | fatal |
+| ESLint | fatal | **reported, not blocking** | fatal |
+
+A dead internal link is user-visible breakage — somebody clicks it and gets a
+404 — and it has shipped twice (§31). It blocks everywhere. An unused import is
+style, and one of those stopping a build the night before a demo helps nobody.
+
+So there is always a way to get a working URL in front of somebody: **deploy to
+a preview**. Lint is printed there but does not block. Fix it before promoting
+to production, which stays strict.
+
+There is deliberately no "skip checks" variable. An override you can reach for
+in a hurry is an override that also turns off the link check.
+
+`vercel.json` sets `buildCommand` to `npm run predeploy && npm run build`, so
+this runs on every deploy whether or not anyone remembers. Running it locally
+first just saves the round trip.
+
+Note that `next build` does **not** run ESLint — Next 16 removed `next lint`
+entirely, so `npm run predeploy` is the only thing linting. TypeScript is
+separate and still fails the build on any target.
 
 Also worth running once:
 
 ```bash
 npm run build
 ```
+
+### The link check tells you what it read
+
+Every run prints its source, and this matters more than it sounds:
+
+```
+Store:   file — /path/to/.content/site.json
+Read:    the published document (published 2026-09-02T17:51:39.471Z)
+Checked: 63 distinct internal links
+Result:  all resolve.
+```
+
+If it says it read *the /data seed*, it checked the repository's starting
+content — correct only when nothing has ever been published. If it names a
+publish timestamp, it read the real document. §34 explains why it refuses to
+pass when it cannot tell which.
+
+> [!WARNING]
+> **`DATABASE_URL` must be set in the BUILD environment, not only at runtime.**
+>
+> Vercel keeps build-time and runtime environment variables in **separate
+> scopes**, and the project settings let you tick one and not the other. It is
+> an easy thing to get half-right.
+>
+> The link check runs at build time and picks its content store from whatever
+> the environment gives it: `DATABASE_URL` present → Postgres; absent → the
+> local file, which does not exist on a fresh Vercel checkout, so it would fall
+> back to the `/data` seed. Before §34 that combination passed green while the
+> published content nobody read stayed unchecked.
+>
+> It now **fails the build** instead, with:
+>
+> ```
+> FAILED — no published content, and no database configured.
+>   driver:    file (inferred — DATABASE_URL is not set here)
+> ```
+>
+> If you see that, add `DATABASE_URL` to the build environment. If the
+> deployment genuinely has no database and serves the seed, declare it with
+> `CONTENT_STORE_DRIVER=file` and the check will pass and say so.
+>
+> The same split applies to `NEXT_PUBLIC_SITE_URL` (§3) for a different reason —
+> it is *inlined* at build time — so when you set environment variables, set
+> them for **all** environments unless you have a specific reason not to.
 
 ---
 

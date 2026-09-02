@@ -2417,6 +2417,108 @@ The number is a public-facing support line printed in the site footer, so
 committing it is the intent rather than a leak — but it is a real contact
 detail in a public repository, which is worth knowing before this is forked.
 
+## 34. The pre-deploy gate could pass without checking anything
+
+Two faults in the gate §33 added. The first is the serious one: the tool written
+to stop §31 recurring could report green having never read the published
+content.
+
+A new section rather than an edit to §33, because §33's reasoning is still
+correct and worth keeping legible — a gate belongs at deploy, publish stays
+permissive, `vercel.json` earns its keep. What was wrong was not the argument
+but two assumptions inside the implementation. Rewriting §33 in place would hide
+that the design survived and only the mechanism failed.
+
+### It read whatever the environment happened to give it
+
+`scripts/check-links.ts` reads `contentStore`, and §31 says approvingly that it
+therefore "checks whichever store is configured — the JSON file or Postgres".
+True of the code. Not true in the way that matters, because **the store is
+chosen from the environment at the moment the script runs**:
+
+```ts
+const driver =
+  process.env.CONTENT_STORE_DRIVER ?? (process.env.DATABASE_URL ? "postgres" : "file");
+```
+
+No `DATABASE_URL` means `FileContentStore`. On a fresh Vercel checkout there is
+no `.content/site.json` — it is gitignored — so `read()` catches ENOENT and
+returns the `/data` seed. The check then validates the seed, prints "all
+resolve", and exits 0.
+
+Vercel keeps **build-time and runtime environment variables in separate
+scopes**, and setting one and not the other is an ordinary mistake rather than
+an exotic one. The result is a green link check on a document nobody read,
+while the published content actually being served went unexamined. That is the
+§31 failure exactly, reintroduced by the fix for it, and dressed in a passing
+build. A silent pass is worse than no check: it converts "nobody looked" into
+"somebody looked and it was fine".
+
+### Refusing to be ambiguous
+
+The script now asks `describeContentStore()` — added to `lib/contentStore.ts`,
+which previously made this decision and then said nothing about it — and calls
+`publishedAt()` before reading anything. That one call separates the two states
+that look identical from outside: `null` means nothing has ever been published,
+a real timestamp means there is a published document.
+
+|  | Nothing published | Published document | Store unreachable |
+|---|---|---|---|
+| **postgres** | pass — seed *is* live, says so | pass — reports publish time | **fail**, checks nothing |
+| **file**, inferred, local | pass — says it read the seed | pass | — |
+| **file**, inferred, deploy | **fail** | pass | — |
+| **file**, explicit | pass — operator declared it | pass | — |
+
+The one genuinely new refusal is the third row. In a deploy context — `VERCEL`
+or `CI` set — an inferred file store with nothing published means the check has
+nothing authoritative to look at, and by far the likeliest explanation is the
+missing build-scope variable. An operator who really is deploying a seed-only
+site says so with `CONTENT_STORE_DRIVER=file`, which is a declaration rather
+than an accident.
+
+Every run now prints which store it read and what it found there, pass or fail.
+A green check that does not say what it read is a green check nobody can act on,
+which was the whole defect.
+
+Proven rather than argued, with `.content/site.json` moved aside to simulate a
+fresh checkout:
+
+- deploy context, no `DATABASE_URL` → **exit 1**, naming the build-vs-runtime
+  scope split
+- same locally → exit 0, "the /data seed — nothing has been published, so the
+  seed IS what gets served"
+- deploy context with `CONTENT_STORE_DRIVER=file` → exit 0, `file (explicit)`
+- `DATABASE_URL` pointed at a dead port → **exit 1**, "Nothing was checked"
+
+### Lint and the link check are not the same kind of check
+
+`predeploy` was `lint && content:check-links`, and `vercel.json` gated the build
+on it. So one unused import could stop a deploy — at any hour, for something no
+visitor could perceive.
+
+They now have different severities, because they are different things. A dead
+link is user-visible breakage and stays fatal everywhere. Lint is style, and its
+severity depends on the target: **production strict, preview reported but not
+blocking**. Local runs stay strict, since the relaxation is about unattended
+builds rather than about the person deliberately running the gate.
+
+That leaves a working escape hatch which is a *target* rather than a flag: push
+to a preview and demo from that URL. Deliberately no `SKIP_CHECKS` variable — an
+override wide enough to reach for in a hurry is one that disables the link check
+too, and §33's point was that a check nobody is forced to run does not exist.
+
+**Lint was not simply dropped, and the installed docs are why.** Per AGENTS.md,
+checked rather than assumed: Next 16 **removed `next lint`** and the `eslint`
+config option (`03-api-reference/05-config/03-eslint.md` — "Starting with
+Next.js 16, `next lint` is removed"). `next build` therefore runs no ESLint at
+all, and `npm run predeploy` is the only thing linting on any deploy. Dropping
+it would have meant nothing lints, ever — the opposite of the intended
+loosening.
+
+TypeScript is unaffected either way. `next build` still type-checks and
+`next.config.mjs` sets no `ignoreBuildErrors`, so real correctness stays gated
+on every target no matter what lint does.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items

@@ -251,3 +251,41 @@ function selectStore(): ContentStore {
 }
 
 export const contentStore: ContentStore = selectStore();
+
+export interface ContentStoreDescription {
+  driver: "postgres" | "file";
+  /** Where the content is read from, for a human reading a log line. */
+  location: string;
+  /**
+   * True when `CONTENT_STORE_DRIVER` named the driver outright, rather than it
+   * being inferred from the presence of `DATABASE_URL`.
+   *
+   * The difference matters to anything deciding whether a fallback was
+   * *intended*. Inferred-file means "no database was configured, which may
+   * simply mean it was not visible from this environment"; explicit-file means
+   * somebody said so on purpose.
+   */
+  explicit: boolean;
+}
+
+/**
+ * Which store `contentStore` actually resolved to, and why.
+ *
+ * Exists because `selectStore()` reads the environment at import time and then
+ * says nothing about what it decided. That silence is fine for the app — the
+ * storefront does not care which adapter it is talking to — and dangerous for
+ * anything *verifying* content, which cares about very little else.
+ *
+ * `scripts/check-links.ts` is the caller: it needs to report what it read, and
+ * to refuse to pass when it cannot show that it read the thing that will be
+ * served. See §34.
+ */
+export function describeContentStore(): ContentStoreDescription {
+  const explicit = Boolean(process.env.CONTENT_STORE_DRIVER);
+  const driver =
+    process.env.CONTENT_STORE_DRIVER ?? (process.env.DATABASE_URL ? "postgres" : "file");
+
+  return driver === "postgres"
+    ? { driver: "postgres", location: "Postgres (ContentDocument)", explicit }
+    : { driver: "file", location: STORE_PATH, explicit };
+}
