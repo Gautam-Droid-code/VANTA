@@ -34,6 +34,12 @@ import { MAX_UPLOAD_BYTES } from "./mediaLimits";
 const ALLOWED_FORMATS = new Set(["jpeg", "png", "webp", "avif", "tiff"]);
 
 /** Largest edge kept. Beyond this is wasted bytes for a storefront photo. */
+/**
+ * The longest edge kept. Everything above it is discarded here, which is why
+ * `lib/downscaleImage.ts` shrinks to the same number in the browser before
+ * upload — see §36. **Change both together**, or the client will either send
+ * more than is kept or less than is wanted.
+ */
 const MAX_DIMENSION = 2400;
 
 export interface ProcessedUpload {

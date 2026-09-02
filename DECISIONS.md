@@ -2636,6 +2636,137 @@ npx tsc --noEmit --noUnusedLocals --noUnusedParameters --allowUnreachableCode fa
 It is clean across the repository as of this change, and it needs no
 configuration to stay that way.
 
+## 36. Uploads that survive a deploy, and the 4.5 MB nobody can raise
+
+The last item in "Blocking a real launch". Two faults, and they compound: photos
+uploaded on Vercel were lost on the next deploy, and photos large enough to be
+worth keeping never arrived in the first place.
+
+### A silent success is the worst failure
+
+`lib/mediaStore.ts` hardcoded `new FileMediaStore()`, writing to
+`.content/uploads/`. On Vercel that filesystem is ephemeral, so the upload
+**succeeds** — the picker shows the tile, the manifest updates, the admin gets a
+green result — and the file is gone at the next deploy. Nobody finds out for
+weeks, and by then the original is on somebody's phone or nowhere.
+
+That is worse than a failed upload in every way that matters. A failure is
+information; this was a lie with a delay on it.
+
+### `BlobMediaStore`, selected the way the content store is
+
+Vercel Blob, chosen over S3 or R2 because it needs no second account: creating a
+store in the project's Storage tab sets `BLOB_READ_WRITE_TOKEN`, which is also
+the variable the adapter is selected by — the same inference `selectStore()`
+makes from `DATABASE_URL`, with `MEDIA_STORE_DRIVER` as the explicit override.
+The file adapter stays the default for local development.
+
+`MediaStore`, `app/media/[id]/route.ts` and every admin component are unchanged.
+Uploads still stream through our own `/media/<id>` route rather than a Blob CDN
+URL; that costs a hop and buys an unchanged interface, an unchanged id format,
+and no way for storage URLs to leak into published content.
+
+Blob's `list()` returns pathname, size and uploadedAt but **not** intrinsic width
+and height, and `ImageAsset` requires those. So the adapter keeps a manifest
+blob, mirroring the file adapter's `manifest.json`, and `MediaItem` means the
+same thing under both. The same last-writer-wins race applies to two
+simultaneous uploads; it is not new, the admin is single-operator, and fixing it
+properly means a row rather than a JSON document.
+
+### Answering "which media store is this?" — §34 applied again
+
+§34 added `describeContentStore()` after a build-time check passed green having
+read the wrong thing. Media has the identical shape with a worse consequence, so
+it gets the identical treatment: `describeMediaStore()` reports the driver, where
+it points, whether it was inferred or declared, and — new here — a `problem`
+field.
+
+`problem` is non-null only for states that cannot work:
+
+| Environment | Driver | Problem |
+|---|---|---|
+| local, no token | `file` (inferred) | none |
+| **`VERCEL=1`, no token** | `file` (inferred) | **flagged** |
+| token present | `blob` (inferred) | none |
+| `VERCEL=1` + token | `blob` (inferred) | none |
+| `MEDIA_STORE_DRIVER=blob`, no token | `blob` (explicit) | **flagged** |
+
+The second row is the one that mattered. It is flagged whether or not the driver
+was explicit, because nobody deliberately wants uploads that disappear — unlike
+the content store, where an explicit `CONTENT_STORE_DRIVER=file` is a legitimate
+declaration.
+
+And it is not merely reported. `assertMediaStoreUsable()` runs in `uploadMedia`
+**before** the write, throwing a typed `MediaStoreConfigError` that the action
+passes through verbatim instead of its generic "couldn't save that image, please
+try again". A misconfiguration is not transient, and telling somebody to retry
+sends them round a loop that cannot succeed. The message names the variable to
+set, and it appears in the error UI the picker already had — so the silent data
+loss became a visible refusal without touching a single admin component.
+
+### The 4.5 MB limit, and why downscaling rather than a presigned upload
+
+Verified against Vercel's live docs (`/docs/functions/limitations`, checked
+2026-09-03) rather than taken on trust:
+
+> The maximum payload size for the request body or the response body of a Vercel
+> Function is **4.5 MB**. If a Vercel Function receives a payload in excess of
+> the limit it will return an error 413: `FUNCTION_PAYLOAD_TOO_LARGE`.
+
+It is a platform limit. `serverActions.bodySizeLimit: "16mb"` in
+`next.config.mjs` cannot raise it, and the comment there implying that number was
+the ceiling is now corrected. An ordinary phone photo is 3–8 MB, so it died in
+transport, before any application code ran, with a platform error rather than the
+friendly message `processUpload` already had ready.
+
+**The deciding fact was that the server already throws the data away.**
+`processUpload` resizes to `MAX_DIMENSION = 2400` and re-encodes to WebP quality
+82. Every pixel past 2400 and every byte of the original encoding is discarded on
+arrival — today, before any of this. Sending a 12-megapixel original spends
+megabytes of somebody's mobile connection on information the pipeline deletes.
+
+So `lib/downscaleImage.ts` shrinks the image in the browser to the *same* 2400px
+the server would have. This is not a workaround that happens to help; it is the
+correct behaviour, and the platform limit only made the existing waste visible.
+
+The alternative — a presigned direct-to-Blob upload — raises the ceiling and
+costs three things worth more than the ceiling:
+
+- **It bypasses `processUpload`, which is a security control.** That function
+  decodes the bytes, rejects anything that is not a supported raster image, and
+  re-encodes so that nothing of the original container or its EXIF survives to be
+  served from our own origin. Preserving it behind a direct upload means
+  re-fetching every file from storage and reprocessing it, with a window where an
+  unvalidated file is already in the bucket.
+- **It only works on one platform.** The file adapter has no 4.5 MB problem, so
+  the browser would need two upload paths chosen by environment — precisely the
+  divergence §34 exists to prevent.
+- Its `onUploadCompleted` callback cannot reach `localhost`, so local development
+  would need a tunnel.
+
+The honest cost: the server never sees the original pixels. For a storefront
+catalogue that is what was already happening one hop later.
+
+Three details in the implementation are load-bearing:
+
+- **It never throws.** Every failure path returns the original file, because the
+  existing size check and `processUpload` still run and can produce a message the
+  operator can act on. A browser that cannot decode an image is not a reason to
+  refuse the upload here.
+- **`imageOrientation: "from-image"`** when decoding. Without it a portrait phone
+  photo is re-encoded in its stored landscape orientation while the EXIF tag is
+  dropped with the original container — arriving permanently on its side.
+  `sharp`'s `.rotate()` does the same job on the un-downscaled path.
+- **Files under 3 MB are sent untouched**, and a re-encode that came out larger is
+  discarded. Neither gains anything, and both would cost a little quality.
+
+`CLIENT_MAX_DIMENSION` and `MAX_DIMENSION` are the same number in two files that
+cannot import each other — `processUpload` pulls in `sharp`, which must never
+reach the browser. Both now carry a comment saying to change them together. It is
+the kind of duplication this ledger keeps recording as a source of drift, and
+naming it is the only defence available short of a shared client-safe constants
+module for one number.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items
@@ -2652,15 +2783,6 @@ entry that no longer matches the code, fix the entry in the same change.**
   number, grievance officer and retention periods are invented. Each page says
   so in a notice at the top. Replace the copy in `data/policies.ts` and remove
   the notice before taking payments.
-- **Uploaded images still need a writable disk.** `lib/mediaStore.ts` writes to
-  `.content/uploads/`. Postgres took the *content document* off the filesystem
-  (§24), which is why the rest of the read-only-serverless problem went away —
-  but photo uploads did not move with it. On Vercel the upload succeeds against
-  an ephemeral filesystem and the file is gone on the next deploy. This is the
-  single remaining blocker for a complete Vercel deploy, and the fix is a
-  `MediaStore` adapter for object storage (S3, R2, Vercel Blob) — the interface
-  already exists, nothing else changes. `DEPLOY.md` warns about it at the point
-  someone is about to deploy, which is where the warning is actually read.
 - **No refund path.** Razorpay takes money (§27) but nothing gives it back. A
   refund today is a manual action in their dashboard, and `REFUNDED` is a status
   nothing sets. Needs their Refunds API, a reason, and a decision about partial
@@ -2839,6 +2961,16 @@ residue.
   deployment whose content was published before this still carries the old
   number and must be corrected in `/admin` → Pages → Homepage → Footer, then
   published — code cannot reach a database it is not connected to.
+- ~~Uploaded images still need a writable disk~~ — **resolved**, §36. A
+  `BlobMediaStore` adapter is selected from `BLOB_READ_WRITE_TOKEN` the way the
+  content store is selected from `DATABASE_URL`, with the file adapter still the
+  default locally. The combination that used to lose files silently — the file
+  adapter on Vercel — is now refused before the write, with a message naming the
+  variable to set.
+- ~~A phone photo dies in transport on Vercel's 4.5 MB body limit~~ —
+  **resolved**, §36. Images are downscaled in the browser to the same 2400px
+  `processUpload` already resized them to, so nothing is lost and a normal photo
+  arrives well under the platform limit.
 - ~~`npm run content:check-links` is not wired into anything~~ — **resolved**,
   §33. It is `npm run predeploy` (with ESLint), and `vercel.json` sets
   `buildCommand` to run it, so a dead link now fails the build instead of

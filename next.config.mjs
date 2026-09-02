@@ -158,20 +158,29 @@ const nextConfig = {
      */
     serverActions: {
       /**
-       * Photo uploads go through a Server Action, and the default body limit is
-       * 1 MB — well under the 12 MB `lib/mediaLimits.ts` advertises. Any photo
-       * from a phone exceeded it, and the failure was a Next runtime error
-       * rather than the friendly message the upload path already has, because
-       * the request died in transport before any of that code ran.
+       * Photo uploads go through a Server Action, and Next's default body limit
+       * is 1 MB — well under the 12 MB `lib/mediaLimits.ts` advertises. Any
+       * photo from a phone exceeded it, and the failure was a Next runtime
+       * error rather than the friendly message the upload path already has,
+       * because the request died in transport before any of that code ran.
        *
        * 16 MB, not 12: multipart framing and the action's own payload ride
-       * along with the file, so a limit set exactly at the file size rejects
-       * a file that is exactly at the file size.
+       * along with the file, so a limit set exactly at the file size rejects a
+       * file that is exactly at the file size.
        *
-       * Must stay above MAX_UPLOAD_BYTES. The real check is server-side in
-       * `processUpload`, which decodes the image rather than trusting a
-       * declared length; this only has to be loose enough to let a legitimate
-       * upload arrive and be judged.
+       * **This number is not the ceiling on Vercel, and cannot be.** A Vercel
+       * Function's request body is capped at 4.5 MB by the platform — verified
+       * against `/docs/functions/limitations`, which returns
+       * `413 FUNCTION_PAYLOAD_TOO_LARGE` above it. No value here can raise
+       * that. The upload path deals with it where it can be dealt with:
+       * `lib/downscaleImage.ts` shrinks the image in the browser to the same
+       * 2400px `processUpload` would have resized it to anyway, so a normal
+       * photo arrives well under the platform limit. §36.
+       *
+       * The generous value here still matters for two cases the downscale does
+       * not cover: a self-hosted deployment, which has no 4.5 MB ceiling, and
+       * the fallback path where a browser cannot re-encode and the original is
+       * sent instead.
        */
       bodySizeLimit: "16mb",
       allowedOrigins: [

@@ -27,6 +27,7 @@ be left unset on purpose?**
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | The captcha widget on `/admin/login`. See the warning below. |
 | `TURNSTILE_SECRET_KEY` | Verifies it. See the warning below. |
 | `NEXT_PUBLIC_SITE_URL` | `https://your-domain` — no trailing slash. See §3. |
+| `BLOB_READ_WRITE_TOKEN` | Set for you when you create a Blob store. Without it, `/admin` photo uploads are refused on Vercel rather than silently lost. See the warning below. |
 
 Generate the two secrets:
 
@@ -79,16 +80,25 @@ unavailable rather than pretending.
 | `CRON_SECRET` | `/api/courier/sync` refuses everything. Correct while there is no scheduler — see §4. |
 
 > [!WARNING]
-> **Photo uploads do not survive a deploy yet.**
+> **Photo uploads need a Blob store on Vercel.**
 >
-> `lib/mediaStore.ts` writes to `.content/uploads/` on the local disk. On Vercel
-> that filesystem is ephemeral: the upload appears to succeed and the file is
-> gone on the next deploy. Images that ship in `public/images` are fine — this
-> only affects photos added through `/admin` → Photos.
+> `.content/uploads/` is the local-development default, and Vercel's filesystem
+> is ephemeral — a write there succeeds and the file is gone at the next deploy.
+> So on Vercel the upload path refuses rather than losing your photo: the picker
+> shows *"The file media adapter cannot work on Vercel…"* naming the variable to
+> set. §36.
 >
-> For a demo, either avoid uploading, or accept that anything you upload is
-> temporary. This is the last real Vercel blocker and is tracked in
-> "Known issues".
+> Fix it in two minutes:
+>
+> 1. Project → **Storage** → **Create Database** → **Blob**
+> 2. Connect it to the project, including the environments you deploy
+>
+> That sets `BLOB_READ_WRITE_TOKEN` automatically, which is the variable the
+> adapter selects on — nothing else to configure. Images in `public/images` were
+> never affected; this is only photos added through `/admin` → Photos.
+>
+> To run against Blob locally, `vercel env pull` and the same variable applies.
+> `MEDIA_STORE_DRIVER=file|blob` overrides the inference either way.
 
 ---
 
@@ -292,6 +302,13 @@ Three ways forward, in increasing order of cost:
    about this step), open a product page, add to bag, and complete a cash-on-
    delivery checkout. That last one exercises the database, the order writer and
    the guest order link in one pass.
+
+   Finally, upload a photo in `/admin` → Photos and **redeploy**, then check the
+   photo is still there. That is the only way to confirm the Blob store is
+   actually being used — the failure it replaces looked exactly like success
+   until the next deploy. A phone photo is the right test file: it is large
+   enough to exercise the browser-side downscale that keeps uploads under
+   Vercel's 4.5 MB request-body limit.
 
 ---
 

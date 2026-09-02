@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { draftContentSchema, siteContentSchema } from "@/lib/contentSchema";
 import { contentStore, type SiteContent } from "@/lib/contentStore";
-import { mediaStore, type MediaItem } from "@/lib/mediaStore";
+import {
+  assertMediaStoreUsable,
+  mediaStore,
+  MediaStoreConfigError,
+  type MediaItem,
+} from "@/lib/mediaStore";
 import { processUpload } from "@/lib/processUpload";
 import { getAdmin } from "@/lib/adminSession";
 import { recordAudit } from "@/lib/auditLog";
@@ -136,8 +141,22 @@ export async function uploadMedia(formData: FormData): Promise<UploadResult> {
   }
 
   try {
+    /**
+     * Refuses before writing when the adapter cannot work where it is running
+     * — an inferred file store on Vercel, most importantly, where the write
+     * would *succeed* and the file would be gone on the next deploy. §36.
+     */
+    assertMediaStoreUsable();
     await mediaStore.add(processed.value.item, processed.value.data);
-  } catch {
+  } catch (error) {
+    /**
+     * A misconfiguration is shown verbatim. It is not transient, so telling the
+     * operator to "try again" would send them round a loop that cannot
+     * succeed — and the message names the variable to set.
+     */
+    if (error instanceof MediaStoreConfigError) {
+      return { ok: false, item: null, error: error.message };
+    }
     return { ok: false, item: null, error: "Couldn’t save that image. Please try again." };
   }
 

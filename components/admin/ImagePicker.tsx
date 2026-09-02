@@ -6,6 +6,7 @@ import Image from "next/image";
 import type { ImageAsset } from "@/data/types";
 import { uploadMedia, deleteMedia } from "@/app/admin/actions";
 import { ACCEPTED_MIME, MAX_UPLOAD_MB, checkUploadSize } from "@/lib/mediaLimits";
+import { downscaleForUpload } from "@/lib/downscaleImage";
 import { imageGuidance, type ImageSlot } from "@/lib/imageGuidance";
 import { useDraft } from "./AdminDraftProvider";
 import { mediaLibrary } from "./mediaLibrary";
@@ -86,8 +87,16 @@ export function ImagePicker({
       return;
     }
     startUpload(async () => {
+      /**
+       * Shrunk before it is sent. Vercel caps a function request body at
+       * 4.5 MB and `bodySizeLimit` cannot raise it, so a phone photo would die
+       * in transport with a platform 413 before any of this code ran. Nothing
+       * is lost: `processUpload` already resizes to the same 2400px and
+       * re-encodes to WebP server-side. §36.
+       */
+      const { file: toSend } = await downscaleForUpload(file);
       const form = new FormData();
-      form.set("file", file);
+      form.set("file", toSend);
       const result = await uploadMedia(form);
 
       if (!result.ok) {
