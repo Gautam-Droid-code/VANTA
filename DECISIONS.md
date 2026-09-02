@@ -2390,6 +2390,33 @@ build does *not* do, and a smoke test whose steps each fail differently — a
 cash-on-delivery checkout at the end because it exercises the database, the
 order writer and the guest order link in one pass.
 
+### The WhatsApp number, fixed in both copies
+
+The footer's support link was `wa.me/919000000000` — a placeholder that looked
+like a phone number, which is the worst kind. It is now the real support line.
+
+Changed in **two** places, because §31 is the section that exists to stop this
+being changed in one:
+
+- `data/homepage.ts` — the seed. On its own this fixes a fresh install and
+  nothing else.
+- `.content/site.json` — the published document, which is what the storefront
+  actually reads once anything has ever been published.
+
+Verified by serving the built site and reading the link out of the rendered
+HTML on two routes, rather than by grepping the source. That is the check that
+would have caught the Series 026 button both times it was declared fixed.
+
+**A deployed database is still not covered by this commit, and cannot be.** Any
+environment whose content was published before today holds the old number in its
+own `ContentDocument` row; correcting it is `/admin` → Pages → Homepage →
+Footer, then Publish. Code in a repository cannot reach a database it is not
+connected to, and pretending otherwise is exactly the mistake §31 records.
+
+The number is a public-facing support line printed in the site footer, so
+committing it is the intent rather than a leak — but it is a real contact
+detail in a public repository, which is worth knowing before this is forked.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items
@@ -2406,10 +2433,6 @@ entry that no longer matches the code, fix the entry in the same change.**
   number, grievance officer and retention periods are invented. Each page says
   so in a notice at the top. Replace the copy in `data/policies.ts` and remove
   the notice before taking payments.
-- **WhatsApp support link is a placeholder** — `https://wa.me/919000000000`, in
-  both `data/homepage.ts` and the published `.content/site.json`. Changing the
-  seed alone is not enough once content has been published; it has to be edited
-  in `/admin` too.
 - **Uploaded images still need a writable disk.** `lib/mediaStore.ts` writes to
   `.content/uploads/`. Postgres took the *content document* off the filesystem
   (§24), which is why the rest of the read-only-serverless problem went away —
@@ -2576,6 +2599,12 @@ entry that no longer matches the code, fix the entry in the same change.**
 - ~~There are no migrations; `prisma db push` was used, so `npm run db:deploy`
   has nothing to apply~~ — **resolved**, §28. `prisma/migrations/` now holds a
   baseline verified to apply cleanly to an empty database with zero drift.
+- ~~WhatsApp support link is a placeholder (`wa.me/919000000000`)~~ —
+  **resolved**, §33. Replaced with the real support number in *both* places §31
+  says have to move together: the `/data` seed and the published document. Any
+  deployment whose content was published before this still carries the old
+  number and must be corrected in `/admin` → Pages → Homepage → Footer, then
+  published — code cannot reach a database it is not connected to.
 - ~~`npm run content:check-links` is not wired into anything~~ — **resolved**,
   §33. It is `npm run predeploy` (with ESLint), and `vercel.json` sets
   `buildCommand` to run it, so a dead link now fails the build instead of

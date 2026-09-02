@@ -174,7 +174,7 @@ export const homepage: HomepageContent = {
       { label: "Returns", href: "/returns" },
       { label: "Terms", href: "/terms" },
       { label: "Privacy", href: "/privacy" },
-      { label: "WhatsApp Support", href: "https://wa.me/919000000000", external: true },
+      { label: "WhatsApp Support", href: "https://wa.me/918855882679", external: true },
     ],
     copyright: "© 2026 VANTA Studio. All rights reserved.",
   },
