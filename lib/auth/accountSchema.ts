@@ -82,9 +82,6 @@ export const addressSchema = z.object({
   isDefault: z.boolean().optional(),
 });
 
-export type RegisterInput = z.infer<typeof registerSchema>;
-export type AddressInput = z.infer<typeof addressSchema>;
-
 /**
  * Turns a Zod failure into `{ field: message }` for a form.
  *

@@ -20,7 +20,6 @@ import {
 } from "@/lib/auth/customerSession";
 import {
   mergeCustomerData,
-  readCustomerData,
   saveCustomerData,
   type CustomerData,
 } from "@/lib/auth/customerData";
@@ -267,12 +266,6 @@ export async function saveAccountDataAction(
   const customer = await getCustomer();
   if (!customer) return null;
   return saveCustomerData(customer.id, incoming);
-}
-
-export async function readAccountDataAction(): Promise<CustomerData | null> {
-  const customer = await getCustomer();
-  if (!customer) return null;
-  return readCustomerData(customer.id);
 }
 
 /* -------------------------------------------------------------------------- */

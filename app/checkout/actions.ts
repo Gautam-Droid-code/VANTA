@@ -4,11 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { hasDatabase, prisma } from "@/lib/db";
 import { getCustomer } from "@/lib/auth/customerSession";
-import {
-  checkoutSchema,
-  emptyCheckoutState,
-  type CheckoutFormState,
-} from "@/lib/checkoutSchema";
+import { checkoutSchema, type CheckoutFormState } from "@/lib/checkoutSchema";
 import { fieldErrors } from "@/lib/auth/accountSchema";
 import { generateOrderNumber, guestOrderPath, priceBag } from "@/lib/orders";
 import { COURIER_PUSH, enqueue } from "@/lib/outbox";
@@ -324,9 +320,4 @@ export async function createOrder(
       ? `/orders/${orderNumber}?placed=1`
       : `${guestOrderPath(orderNumber)}&placed=1`,
   );
-}
-
-/** Kept so this `"use server"` module exports only async functions. */
-export async function emptyState(): Promise<CheckoutFormState> {
-  return emptyCheckoutState;
 }

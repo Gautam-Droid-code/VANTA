@@ -1,4 +1,4 @@
-import type { Transition, Variants } from "framer-motion";
+import type { Variants } from "framer-motion";
 
 /**
  * One easing vocabulary for the whole site.
@@ -14,12 +14,6 @@ export const duration = {
   base: 0.25,
   slow: 0.4,
 } as const;
-
-export const springTap: Transition = {
-  type: "spring",
-  stiffness: 500,
-  damping: 30,
-};
 
 /** Standard fade-up used by every section on scroll-into-view. */
 export const fadeUp: Variants = {

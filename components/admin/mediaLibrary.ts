@@ -26,7 +26,3 @@ export const mediaLibrary: Array<Omit<ImageAsset, "alt"> & { label: string }> = 
     height: 1200,
   },
 ];
-
-export function findMedia(src: string) {
-  return mediaLibrary.find((m) => m.src === src);
-}

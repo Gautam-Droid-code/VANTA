@@ -7,7 +7,7 @@ import { BackdropPicker } from "./BackdropPicker";
 import { ImagePicker } from "./ImagePicker";
 import { Button, Field, Select, TextArea, TextInput, Toggle } from "./ui";
 import { CloseIcon } from "./AdminIcons";
-import { formatINR, cn } from "@/lib/format";
+import { formatINR } from "@/lib/format";
 
 /** Badge values currently in use. `badge` is a free-form string in the schema, so
  *  presets are a convenience — "Custom…" keeps the full range the type allows. */
@@ -312,5 +312,3 @@ export const blankProduct = (): Product => ({
   href: "",
   codAvailable: true,
 });
-
-export { cn };

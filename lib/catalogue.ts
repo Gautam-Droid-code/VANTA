@@ -72,11 +72,6 @@ export async function getCollection(slug: string): Promise<Collection | null> {
   return { category, products: productsIn(category, homepage.categories.items, products) };
 }
 
-export async function getAllCollections(): Promise<Category[]> {
-  const { homepage } = await contentStore.read();
-  return homepage.categories.items;
-}
-
 export interface CollectionLink {
   slug: string;
   name: string;

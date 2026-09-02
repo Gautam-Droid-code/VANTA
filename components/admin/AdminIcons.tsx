@@ -29,14 +29,6 @@ export const PagesIcon = (p: IconProps) => (
   </svg>
 );
 
-/** Kept for the section-level rows inside a page. */
-export const SectionsIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <rect x="3.5" y="4" width="17" height="5" rx="1.5" />
-    <rect x="3.5" y="12" width="17" height="8" rx="1.5" />
-  </svg>
-);
-
 export const ProductsIcon = (p: IconProps) => (
   <svg {...base} {...p}>
     <path d="M4 8h16l-1 12H5L4 8Z" />

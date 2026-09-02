@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin, revokeAdminSession, revokeOtherAdminSessions } from "@/lib/adminSession";
+import { requireAdmin, revokeOtherAdminSessions } from "@/lib/adminSession";
 import { recordAudit } from "@/lib/auditLog";
 
 /**
@@ -13,11 +13,6 @@ import { recordAudit } from "@/lib/auditLog";
  * row has been confirmed to belong to whoever is asking. A server action is a
  * public endpoint with a hard-to-guess name, not a private one.
  */
-
-export interface RevokeResult {
-  ok: boolean;
-  message: string | null;
-}
 
 export async function revokeSessionAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
@@ -64,11 +59,4 @@ export async function revokeAllOtherSessionsAction(): Promise<void> {
   }
 
   revalidatePath("/admin/security");
-}
-
-/** Kept exported so the module has no non-async exports — a `"use server"` rule. */
-export async function revokeCurrentSessionAction(): Promise<void> {
-  const admin = await requireAdmin();
-  await revokeAdminSession(admin.sessionId);
-  await recordAudit({ actor: admin.username, action: "admin.signout" });
 }

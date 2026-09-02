@@ -27,7 +27,6 @@ export const checkoutLineSchema = z.object({
 });
 
 export const paymentMethodSchema = z.enum(["COD", "ONLINE"]);
-export type PaymentMethodValue = z.infer<typeof paymentMethodSchema>;
 
 /**
  * The address, either chosen from the book or typed in.
@@ -51,8 +50,6 @@ export const checkoutSchema = z
     message: "Choose a delivery address.",
     path: ["address"],
   });
-
-export type CheckoutInput = z.infer<typeof checkoutSchema>;
 
 /** The shape every checkout form's `useActionState` carries. */
 export interface CheckoutFormState {

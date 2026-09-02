@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, type Variants } from "framer-motion";
-import { fadeUp, fadeUpSm, inView, stagger } from "@/lib/motion";
+import { fadeUp, inView, stagger } from "@/lib/motion";
 import { cn } from "@/lib/format";
 
 /**
@@ -115,6 +115,3 @@ export function RevealItem({
     </Component>
   );
 }
-
-/** Convenience re-export so sections don't need to import from lib/motion too. */
-export { fadeUp, fadeUpSm };

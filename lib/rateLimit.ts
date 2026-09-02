@@ -271,8 +271,6 @@ export async function pruneRateLimits(olderThanMs = 7 * 24 * 60 * 60 * 1000): Pr
   return count;
 }
 
-export const RATE_LIMIT_MAX_ATTEMPTS = MAX_ATTEMPTS;
-
 /** Key builders, so the `scope:kind:value` shape is written down once. */
 export const rateLimitKey = {
   ip: (scope: string, ip: string) => `${scope}:ip:${ip}`,

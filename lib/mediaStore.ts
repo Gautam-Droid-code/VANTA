@@ -7,7 +7,7 @@
  */
 import "server-only";
 
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -113,13 +113,3 @@ export const mediaStore: MediaStore = new FileMediaStore();
 
 /** Ids are generated, never taken from input; this is what the route validates. */
 export const MEDIA_ID_PATTERN = /^[0-9a-f]{32}$/;
-
-export async function listOrphanedFiles(): Promise<string[]> {
-  try {
-    const files = await readdir(ROOT);
-    const known = new Set((await mediaStore.list()).map((m) => `${m.id}.webp`));
-    return files.filter((f) => f.endsWith(".webp") && !known.has(f));
-  } catch {
-    return [];
-  }
-}

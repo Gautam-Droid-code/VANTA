@@ -2519,6 +2519,123 @@ TypeScript is unaffected either way. `next build` still type-checks and
 `next.config.mjs` sets no `ignoreBuildErrors`, so real correctness stays gated
 on every target no matter what lint does.
 
+## 35. Dead code sweep, and the things that only looked dead
+
+A pass with `knip` (unused exports, files, dependencies), TypeScript's
+`--noUnusedLocals --noUnusedParameters --allowUnreachableCode false`, and
+ESLint. Everything a tool flagged was cross-checked against real usage before
+anything was deleted, which turned out to matter: **most of what was flagged was
+alive**, and two of the flags were the kind that break a build if trusted.
+
+### What was removed
+
+Fifteen symbols, all verified unreferenced anywhere outside their own
+definition:
+
+| Removed | Where |
+|---|---|
+| `listOrphanedFiles` | `lib/mediaStore.ts` |
+| `readAccountDataAction` | `app/account/actions.ts` |
+| `revokeCurrentSessionAction`, `RevokeResult` | `app/admin/(dashboard)/security/actions.ts` |
+| `emptyState` | `app/checkout/actions.ts` |
+| `findMedia` | `components/admin/mediaLibrary.ts` |
+| `getAllCollections` | `lib/catalogue.ts` |
+| `springTap` | `lib/motion.ts` |
+| `RATE_LIMIT_MAX_ATTEMPTS` | `lib/rateLimit.ts` |
+| `SectionsIcon` | `components/admin/AdminIcons.tsx` |
+| `RegisterInput`, `AddressInput` | `lib/auth/accountSchema.ts` |
+| `PaymentMethodValue`, `CheckoutInput` | `lib/checkoutSchema.ts` |
+| `export { cn }` | `components/admin/ProductDrawer.tsx` |
+| `export { fadeUp, fadeUpSm }` | `components/ui/Reveal.tsx` |
+
+Plus the five imports left dangling by those deletions, found by the strict
+compiler pass rather than by eye.
+
+Two are worth calling out because they were **protected by comments that were
+not true** — the failure mode this ledger keeps recording:
+
+- `emptyState` in `app/checkout/actions.ts`: *"Kept so this `"use server"`
+  module exports only async functions."*
+- `revokeCurrentSessionAction`: *"Kept exported so the module has no non-async
+  exports — a `"use server"` rule."*
+
+The rule is real. The claim that these satisfied it was not: every other export
+in both modules is already an async function, so removing them changes nothing
+about the constraint. Verified by deleting and building. A comment asserting
+that code is load-bearing is not evidence that it is — §30 made the same point
+about a number, §31 about a link, §34 about a check.
+
+`export { cn }` was a component re-exporting a utility it had imported, and the
+`fadeUp` re-export announced itself as a convenience "so sections don't need to
+import from lib/motion too" — while every section imports from `lib/motion`
+directly. A convenience nobody used is not a convenience.
+
+### What looked dead and was left, deliberately
+
+**Two would have broken the build.** Both are cases where a tool cannot see the
+consumer:
+
+- **`@prisma/client` reported as an unused dependency.** It is imported by the
+  generated client (`@prisma/client/runtime/client`), which lives in
+  `lib/generated` — correctly excluded from analysis, and therefore invisible.
+  Removing it would break every database call in the app.
+- **Six icons in `components/ui/Icons.tsx`** — `HomeIcon`, `ShopIcon`,
+  `TruckIcon`, `ReturnIcon`, `RupeeIcon`, `ShieldIcon` — reported as unused
+  exports. They are the values of the `trustIcons` and `bottomNavIcons` maps in
+  the same file. Used, just not imported.
+
+**Half-built features, left because the seam is the point.** These are unused
+because the thing that would call them does not exist yet, and deleting them
+would quietly delete a decision:
+
+- `pruneAdminSessions`, `pruneExpiredSessions`, `pruneRateLimits` — garbage
+  collection for three tables that grow without bound. There is no scheduler:
+  §34 removed the only cron this project had, because Vercel's Hobby plan
+  rejects it. These are the other half of that story. Deleting them would mean
+  writing them again from scratch the day a cleanup job is added, and the
+  reasoning about *what* is safe to prune (see the lockout-window comment in
+  `pruneRateLimits`) would have to be rediscovered.
+- `destroyAllCustomerSessions` — "sign out everywhere", which is what a password
+  change is supposed to trigger. There is no password-change flow yet. The
+  function is the seam that makes adding one safe.
+- `isSecretBoxConfigured` — matches `isRazorpayConfigured`,
+  `isShiprocketConfigured` and `isTurnstileConfigured`, all of which are used.
+  An admin diagnostics surface would want all four. Left for the symmetry.
+
+**Exported but used only inside their own module.** About twenty of these:
+`checkRateLimit` / `recordFailure` / `clearAttempts` under their `*All`
+wrappers, `signOrderToken` beside `verifyOrderToken`, `getToken` and `assignAwb`
+in the Shiprocket client, `tokenise`, `clampDescription`, `backoffMs`,
+`seedContent`, and the schema fragments in `lib/auth/accountSchema.ts` and
+`lib/checkoutSchema.ts`.
+
+Every one of these is live code. The only thing "unused" about them is the
+`export` keyword, and un-exporting is a refactor of a module's API surface, not
+a deletion of dead code — with no runtime benefit, since none of it ships to the
+browser. A sweep whose purpose is removing what nothing references should not
+quietly narrow the public shape of every library module on the way past. Listed
+here so the next sweep does not re-litigate it.
+
+`postcss-load-config` is reported as an unlisted dependency. It appears once, in
+a JSDoc `@type` annotation in `postcss.config.mjs`, and resolves transitively.
+Adding a dependency during a removal pass to satisfy a type comment is the wrong
+trade.
+
+### On the tooling
+
+`knip` was run with a temporary config and **not** added to the project.
+Reproducing the sweep is one command, and a config file describing this
+repository's entry points would itself become something to keep true — the exact
+maintenance burden §30 and §31 are about. The strict TypeScript pass is the part
+worth keeping in muscle memory:
+
+```bash
+npx tsc --noEmit --noUnusedLocals --noUnusedParameters --allowUnreachableCode false
+```
+
+It is clean across the repository as of this change, and it needs no
+configuration to stay that way.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items
@@ -2657,6 +2774,21 @@ entry that no longer matches the code, fix the entry in the same change.**
   reconciliation queue on `/admin/orders` until somebody issues a refund. There
   is no refund path yet (see above), so today that means doing it in Razorpay's
   dashboard and there is nothing in the admin that records having done so.
+
+### Deliberately unused, kept as seams
+
+Recorded by §35 so a future dead-code sweep does not delete them. Each is unused
+because the thing that would call it has not been built, not because it is
+residue.
+
+- **`pruneAdminSessions`, `pruneExpiredSessions`, `pruneRateLimits`** — garbage
+  collection for three tables that grow without bound. Nothing schedules them;
+  §34 removed the project's only cron because Hobby rejects it. Wire them to a
+  cleanup job when there is a scheduler.
+- **`destroyAllCustomerSessions`** — "sign out everywhere". Waiting on a
+  password-change flow, which does not exist.
+- **`isSecretBoxConfigured`** — the fourth of four `is*Configured` predicates;
+  the other three are used. An admin diagnostics view would want all four.
 
 ### Cosmetic
 
