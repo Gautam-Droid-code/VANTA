@@ -1,8 +1,4 @@
 {
-  "crons": [
-    {
-      "path": "/api/courier/sync",
-      "schedule": "*/15 * * * *"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run predeploy && npm run build"
 }

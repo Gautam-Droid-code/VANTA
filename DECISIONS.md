@@ -1565,6 +1565,48 @@ and theirs is exactly where a factor-of-100 bug lives. Shiprocket's API is in
 rupees, so `paiseToRupees` is applied once, in `lib/shipping/courierPush.ts`,
 at the edge.
 
+### The scheduled sync was removed for Hobby-plan deploys
+
+`vercel.json` declared `/api/courier/sync` at `*/15 * * * *`. That is not a
+schedule Vercel will accept on a Hobby account, and the failure mode is the
+worst kind: **the deploy fails outright**, so the first time anyone finds out is
+when they are trying to put the site in front of somebody.
+
+Confirmed against Vercel's live docs rather than from memory
+(`/docs/cron-jobs/usage-and-pricing`, checked 2026-09-02): Hobby is limited to
+*once per day* with *per-hour* precision — a job set for 01:00 fires somewhere
+in the following 59 minutes. Pro and Enterprise allow once per minute. The
+rejection message is explicit: "Hobby accounts are limited to daily cron jobs.
+This cron expression would run more than once per day."
+
+The `crons` block is gone; `vercel.json` now carries a `buildCommand` instead.
+**The route is untouched** — `/api/courier/sync` still exists, still requires
+`CRON_SECRET`, and still does exactly what it did. Only the schedule that called
+it was removed.
+
+Nothing about correctness depends on it, and that is by design rather than luck.
+The section above states the shape: the tracking webhook is the primary path and
+the sync is the safety net under it. With no scheduler the net is simply not
+strung — a webhook that goes missing leaves an order on a stale status until
+someone looks, and `/admin/orders` has a button that drains the push queue by
+hand. Orders are still taken, still recorded, still pushed to the courier by the
+outbox. Nothing that touches money or a customer's expectations moves.
+
+Three ways to put it back, and the middle one is easy to miss:
+
+1. **Leave it off.** Correct for a demo, and what ships today.
+2. **A once-daily cron, which Hobby does allow** — `0 3 * * *`. A safety net
+   whose job is catching a dropped webhook does not need fifteen-minute
+   granularity, and daily is a large improvement on never. This is the option
+   worth taking the moment the site has a real customer on a Hobby plan.
+3. **Pro, or an external scheduler** hitting the route with `CRON_SECRET`. Only
+   worth the money once tracking freshness is something a customer would notice.
+
+Re-adding it is a `crons` block in `vercel.json` and nothing else. `CRON_SECRET`
+must be set or the route refuses the call — which is the correct behaviour, but
+it does mean a re-added cron that silently 401s looks exactly like a cron that
+is not running.
+
 ## 28. Fix-up pass: sign-out, migrations, and the token at rest
 
 No new features. Five defects found by reading the code that §24–§27 left
@@ -2282,6 +2324,72 @@ navbar — from the chrome rather than from any page *about* browsing. They now
 have a "More ways in" block on `/collections`, which is the page a crawler
 following "Collections" actually lands on.
 
+## 33. Making a deploy survivable: DEPLOY.md and a pre-deploy gate
+
+Phase 1 of getting this in front of a client. Nothing here changes what the
+application does — it changes what happens when somebody tries to ship it.
+
+### The check that existed but never ran
+
+§31 built `content:check-links` and then said, in this file's own known-issues
+list: *"It has to be remembered. It belongs in CI and in the pre-deploy
+checklist; until it is there, a dead link still ships silently."*
+
+That entry sat there while the tool it describes did nothing, which is the same
+failure §31 was written about — knowing a thing is wrong is not the same as
+making it impossible. So it is wired in two places now:
+
+- `npm run predeploy` — ESLint plus the link check, one command to run before
+  pushing.
+- `vercel.json` sets `buildCommand` to `npm run predeploy && npm run build`, so
+  **a Vercel deploy runs it whether anyone remembers or not** and a dead link
+  fails the build instead of reaching a client.
+
+`vercel.json` survives rather than being deleted when its `crons` block was
+removed, and that is the reason: an empty config file is an invitation to put
+crons back without reading why they went. Giving the file a job it is actually
+doing is better than leaving a `{}` behind.
+
+Note the asymmetry with §31's own reasoning, which is deliberate. That section
+argued *against* refusing a **publish** for a dead link, because an editor can
+legitimately link to a product they are about to add. A **deploy** is a
+different moment: nothing is half-finished by design at the point you are
+shipping to production, and the cost of being wrong is a client clicking a 404.
+Publish stays permissive; deploy is a gate.
+
+### DEPLOY.md exists because the failure modes are not guessable
+
+`.env.local.example` is thorough and annotated, and it is the wrong document to
+read at deploy time — it answers "what does this variable do", not "what is the
+minimum, what should I deliberately leave unset, and what will bite me".
+
+The three things it leads with are the three that actually go wrong:
+
+**Turnstile fails closed on the admin, and open on the customer forms.** This is
+the one that will lock you out in front of somebody. With `TURNSTILE_SECRET_KEY`
+unset, `/admin/login` refuses *every* sign-in with correct credentials included
+— verified in `app/admin/login/actions.ts`, which returns before the password is
+ever checked. The customer forms do the opposite: `verifyTurnstileIfConfigured`
+returns `{ ok: true, reason: "skipped-unconfigured" }`. Both behaviours are
+right and §17 and §25 explain why, but the asymmetry is invisible unless
+somebody tells you, so DEPLOY.md tells you, along with Cloudflare's
+always-passing test pair as the way back in.
+
+**`NEXT_PUBLIC_SITE_URL` is inlined at build time.** §32 records getting this
+wrong during testing: setting it at `next start` did nothing, because the value
+was baked when the site was built. Anyone deploying will hit the same thing —
+and its symptom is an empty `sitemap.xml` and a `robots.txt` with no `Sitemap:`
+line, which looks like the code is broken rather than like a missing variable.
+
+**Uploads do not survive a deploy.** Documented at the point of deploying rather
+than only in a known-issues list, because that is where somebody is standing
+when it matters.
+
+The rest is the release sequence, with `db:deploy` called out as something the
+build does *not* do, and a smoke test whose steps each fail differently — a
+cash-on-delivery checkout at the end because it exercises the database, the
+order writer and the guest order link in one pass.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items
@@ -2309,7 +2417,8 @@ entry that no longer matches the code, fix the entry in the same change.**
   an ephemeral filesystem and the file is gone on the next deploy. This is the
   single remaining blocker for a complete Vercel deploy, and the fix is a
   `MediaStore` adapter for object storage (S3, R2, Vercel Blob) — the interface
-  already exists, nothing else changes.
+  already exists, nothing else changes. `DEPLOY.md` warns about it at the point
+  someone is about to deploy, which is where the warning is actually read.
 - **No refund path.** Razorpay takes money (§27) but nothing gives it back. A
   refund today is a manual action in their dashboard, and `REFUNDED` is a status
   nothing sets. Needs their Refunds API, a reason, and a decision about partial
@@ -2406,9 +2515,6 @@ entry that no longer matches the code, fix the entry in the same change.**
   always compare medians of ≥5 runs, and **commit before starting perf work** so
   a true before/after baseline can be measured on demand.
 
-- **`npm run content:check-links` is not wired into anything.** It has to be
-  remembered. It belongs in CI and in the pre-deploy checklist; until it is
-  there, a dead link still ships silently. §31.
 - **Over-faded `bone` tints carrying text.** §30 fixed one (`text-bone/40` on
   the homepage category rows, 3.58:1, failing AA) but did not sweep for the
   rest. Anything at `bone/40` or lower rendering text is a likely failure
@@ -2470,6 +2576,10 @@ entry that no longer matches the code, fix the entry in the same change.**
 - ~~There are no migrations; `prisma db push` was used, so `npm run db:deploy`
   has nothing to apply~~ — **resolved**, §28. `prisma/migrations/` now holds a
   baseline verified to apply cleanly to an empty database with zero drift.
+- ~~`npm run content:check-links` is not wired into anything~~ — **resolved**,
+  §33. It is `npm run predeploy` (with ESLint), and `vercel.json` sets
+  `buildCommand` to run it, so a dead link now fails the build instead of
+  reaching a client.
 - ~~The Shiprocket bearer token is stored in plaintext~~ — **resolved**, §28.
   Encrypted at rest with AES-256-GCM under `SECRET_ENCRYPTION_KEY`.
 - ~~Signing out of the admin leaves the cookie in place and loops~~ —

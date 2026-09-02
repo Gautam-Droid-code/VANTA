@@ -67,6 +67,7 @@ Then open http://localhost:3000.
 | `npm run db:studio` | Browse the database in Prisma Studio |
 | `npm run content:import` | Copy `.content/site.json` into Postgres, once |
 | `npm run content:check-links` | Report dead internal links in the published content |
+| `npm run predeploy` | Lint + link check. Run before deploying; `vercel.json` runs it too |
 
 ## Project structure
 
@@ -455,6 +456,14 @@ must not touch a database.
 
 ### Deploying to Vercel
 
+> [!IMPORTANT]
+> **[`DEPLOY.md`](DEPLOY.md) is the checklist.** It has the minimum environment,
+> what to leave unset on purpose, the release steps, and the three things that
+> reliably go wrong — including the one that locks you out of `/admin` in front
+> of a client. Read it before your first deploy.
+
+The short version:
+
 The `> [!IMPORTANT]` note above about the JSON content store no longer applies
 once `DATABASE_URL` is set: content moves to the `ContentDocument` table and
 the read-only filesystem stops mattering. **Uploaded images still write to
@@ -467,9 +476,16 @@ If `/admin` has published anything on this machine, carry it across once:
 npm run content:import
 ```
 
-Set the build command to `npm run build` (it runs `prisma generate` first, and
-the generated client is gitignored) and run `npm run db:deploy` as part of
-releasing.
+Run `npm run db:deploy` as part of releasing — the build does not do it.
+
+The build command comes from `vercel.json`, which runs `npm run predeploy`
+(ESLint plus [`content:check-links`](DEPLOY.md#2-before-you-push)) before
+`npm run build`, so a dead internal link fails the deploy rather than reaching
+production. Run it yourself first to save the round trip:
+
+```bash
+npm run predeploy
+```
 
 ### Schema changes go through migrations, never `db push`
 

@@ -15,7 +15,8 @@
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
     "content:import": "tsx scripts/import-content.ts",
-    "content:check-links": "tsx --conditions=react-server scripts/check-links.ts"
+    "content:check-links": "tsx --conditions=react-server scripts/check-links.ts",
+    "predeploy": "npm run lint && npm run content:check-links"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
