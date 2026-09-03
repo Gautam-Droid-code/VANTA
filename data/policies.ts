@@ -1,20 +1,30 @@
 import type { PolicyPage } from "./types";
 
 /**
- * PLACEHOLDER POLICY COPY — NOT REVIEWED, NOT BINDING.
+ * ILLUSTRATIVE POLICY COPY FOR A FICTIONAL SHOP.
  *
- * Written to make the footer's links lead somewhere real and to show the shape
- * these pages take. It is plausible for an Indian D2C brand and consistent with
- * what the storefront already claims — seven-day returns, cash on delivery,
- * free shipping over ₹1,999 — but it has not been near a lawyer, and several
- * details are invented outright: the registered address, the GST number, the
- * grievance officer, the retention periods.
+ * VANTA is not a real brand and this is not a real store. These pages exist to
+ * show the *shape* a storefront's policies take and to make the footer's links
+ * lead somewhere coherent. Every page renders `components/DemoNotice.tsx` above
+ * its title saying exactly that, in the reader's own words rather than in
+ * small print.
  *
- * The page says all of this to the reader too. Legal text that looks reviewed
- * but is not is worse than text that admits it, because nobody thinks to check
- * it before launch.
+ * The operational descriptions are kept and are consistent with what the
+ * storefront says elsewhere — seven-day returns, cash on delivery, free
+ * shipping over ₹1,999. Those are what a demonstration of a shop should
+ * demonstrate.
  *
- * Replace wholesale before taking payments.
+ * What used to be here and is now gone: a registered address, GST
+ * registration details, a named grievance officer, and a specific retention
+ * period. Those are **compliance claims**, and inventing them is different in
+ * kind from inventing a delivery estimate. A plausible GST reference on a page
+ * headed "Terms of Service" is a false statement about a legal registration,
+ * and it reads as true precisely because the rest of the page is careful.
+ * Where such a detail belonged, the text now says what a real store would put
+ * there instead of making one up.
+ *
+ * Still not reviewed by a lawyer, and still not a contract. Replace wholesale
+ * before this takes a single rupee. §37.
  */
 const UPDATED = "Last updated 28 August 2026";
 
@@ -108,7 +118,7 @@ export const policies: PolicyPage[] = [
       {
         heading: "Who we are",
         body: [
-          "VANTA is a clothing label operating from Mumbai, Maharashtra. Our registered address and GST details appear on every invoice.",
+          "VANTA is a fictional brand — see the notice at the top of this page. A real store would identify its operating entity here: the registered company name, its registered address, and its tax registration details.",
         ],
       },
       {
@@ -121,7 +131,7 @@ export const policies: PolicyPage[] = [
       {
         heading: "Prices",
         body: [
-          "All prices are in Indian rupees and include GST. Shipping is shown separately at checkout before you pay.",
+          "All prices are shown in Indian rupees, and shipping is shown separately at checkout before you pay. A real store would state here whether those prices include GST, alongside its tax registration.",
           "We can change prices at any time, but never on an order already placed.",
         ],
       },
@@ -146,7 +156,7 @@ export const policies: PolicyPage[] = [
       {
         heading: "Disputes",
         body: [
-          "Indian law applies, and the courts of Mumbai have jurisdiction. Before that, message us — most things are settled that way.",
+          "A real store would name the law that applies and the courts that have jurisdiction, which follow from where the business is actually registered. Before any of that, most things are settled by getting in touch.",
         ],
       },
     ],
@@ -174,7 +184,7 @@ export const policies: PolicyPage[] = [
       {
         heading: "Why we keep it",
         body: [
-          "To deliver orders, handle returns, answer questions, and meet the record-keeping that tax rules require. We keep order records for eight years for that reason and delete what we don’t need.",
+          "To deliver orders, handle returns, answer questions, and meet the record-keeping that tax rules require. A real store would state a specific retention period here, set by the rules it operates under, and delete what it no longer needs.",
         ],
       },
       {
@@ -192,7 +202,7 @@ export const policies: PolicyPage[] = [
       {
         heading: "Contact",
         body: [
-          "Our grievance officer can be reached on the WhatsApp number in the footer, or by post at our registered address.",
+          "Indian consumer rules require a store to name a grievance officer and publish a way to reach them. A real store would list that person and their contact details here. Nothing on this site is monitored — see the notice at the top of the page.",
         ],
       },
     ],

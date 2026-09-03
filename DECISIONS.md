@@ -2767,6 +2767,94 @@ the kind of duplication this ledger keeps recording as a source of drift, and
 naming it is the only defence available short of a shared client-safe constants
 module for one number.
 
+## 37. The policy pages stop pretending to be a real shop's terms
+
+`data/policies.ts` presented invented compliance details as a real store's
+binding terms: a registered address, GST registration referenced on "every
+invoice", a named grievance officer, an eight-year retention period, and the
+courts of Mumbai holding jurisdiction. There was a notice admitting the copy was
+placeholder — below the title, in muted text, after the reader had already
+started reading the page as terms.
+
+### Inventing a delivery estimate is not the same as inventing a GST number
+
+The old framing treated all of it as one category — "plausible but unreviewed".
+It is two.
+
+"Mumbai and Pune: one to two days" is a description of how a shop like this
+would operate. It is illustrative, the notice now frames it as illustrative, and
+demonstrating a storefront means demonstrating that a shipping page has delivery
+estimates on it.
+
+"Our registered address and GST details appear on every invoice" is a **false
+statement about a legal registration**, on a page headed Terms of Service. So is
+a named grievance officer, which Indian consumer rules specifically require a
+real store to publish. These read as true precisely *because* the rest of the
+page is careful — the care is what lends them credibility.
+
+So the operational copy stays and the compliance claims are gone. Where one
+stood, the text now says what a real store would put there:
+
+> A real store would identify its operating entity here: the registered company
+> name, its registered address, and its tax registration details.
+
+That demonstrates the shape, which was the point of the pages, without asserting
+anything untrue. Jurisdiction went with the registered address for the same
+reason — which courts have jurisdiction follows from where a business is
+actually registered, and this one is not.
+
+### The notice is a component, not a field
+
+`PolicyPage` in `data/types.ts` has no field for this and one was not added.
+Three reasons:
+
+- **It is a fact about the site, not about any one policy.** Four identical
+  copies in a data file is four things to keep in step, which is the drift
+  §30 recorded for a count and §31 for a link.
+- A per-page field reads as *editable per page*, inviting somebody to reword it
+  on one and drop it from another. It is not that kind of text.
+- It is also needed on `/checkout`, which is not a `PolicyPage` at all, so a
+  field on that type could never have served both callers.
+
+`components/DemoNotice.tsx` holds both variants in one file so the wording
+cannot drift between them.
+
+### Markup and colour, both deliberate
+
+The previous notice was an `<aside role="note">`. A complementary landmark is
+exactly what some screen-reader reading modes skip, which is the wrong property
+for the one paragraph on the page that must not be missed. The replacement is
+ordinary flow content with real `<p>` elements, read in order with everything
+else.
+
+It sits **above** the `<h1>`, which is also why its emphasised first line is a
+`<p><strong>` rather than a heading: an `<h2>` before the page's `<h1>` would
+create the heading-order violation already tracked against `/products`.
+
+Colour was measured rather than chosen. `bone` on solid `flare-red` is 5.41:1
+and on the 10% tint 16.95:1, but `flare-red-hot` **text** on that tint is only
+3.78:1 and fails AA — so the red carries the surface and bone carries every
+word. The 2px solid `flare-red` border is 3.28:1 against the page, over the 3:1
+WCAG 1.4.11 asks of a boundary.
+
+### Checkout gets the short version
+
+Checkout is the one page where somebody can type a real address and a real phone
+number into a form, so the warning arrives above the form rather than beside it.
+Two lines in the page's own voice — deliberately not a modal, which people
+dismiss reflexively and which would be the wrong register for a demonstration
+anyway.
+
+### On the seed-versus-published trap
+
+Checked before relying on it, because §31 exists: `SiteContent` is
+`{ homepage, collectionPage, products }` and nothing else. Policies are not in
+it, `.content/site.json` has no policy key, and
+`app/(policies)/[slug]/page.tsx` imports `@/data/policies` directly — as do
+`app/sitemap.ts` and `app/llms.txt/route.ts`. So editing `data/policies.ts`
+changes the live site, and this is one of the few content changes where the
+`/admin` publish step is not also required.
+
 ## Known issues / follow-ups
 
 Every entry below was re-checked against the code on 2026-08-31. Resolved items
@@ -2777,12 +2865,24 @@ entry that no longer matches the code, fix the entry in the same change.**
 
 ### Blocking a real launch
 
-- **The policy pages are placeholder text.** `/returns`, `/shipping`, `/terms`
-  and `/privacy` exist and are internally consistent with what the storefront
-  claims, but none of it has been reviewed, and the registered address, GST
-  number, grievance officer and retention periods are invented. Each page says
-  so in a notice at the top. Replace the copy in `data/policies.ts` and remove
-  the notice before taking payments.
+- **The policy pages are illustrative, and the site says so.** §37 removed the
+  part that was actually dangerous: the invented registered address, GST
+  references, named grievance officer, retention period and jurisdiction — false
+  statements about legal registrations, presented as a real shop's binding
+  terms. Every policy page and `/checkout` now carry an unmissable notice above
+  the title saying VANTA is fictional, nothing is for sale, and no real details
+  should be entered.
+
+  What remains before this could take money is not a copy edit. A real store
+  needs: a registered operating entity, its address and tax registration; a
+  named grievance officer with contact details, which Indian consumer rules
+  require; a retention period set by the rules it actually operates under; a
+  stated governing law and jurisdiction; and all of it reviewed by somebody
+  qualified. The pages mark each of those places with a sentence saying what
+  belongs there, so the shape is a checklist rather than a blank.
+
+  **The notice comes out at the same time as those go in, and not before** —
+  it is the only thing currently making the pages honest.
 - **No refund path.** Razorpay takes money (§27) but nothing gives it back. A
   refund today is a manual action in their dashboard, and `REFUNDED` is a status
   nothing sets. Needs their Refunds API, a reason, and a decision about partial

@@ -8,6 +8,7 @@ import { isRazorpayConfigured } from "@/lib/payments/razorpay";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
+import { CheckoutDemoNotice } from "@/components/DemoNotice";
 import { CheckoutForm } from "@/components/checkout/CheckoutForm";
 import { CheckoutSummary } from "@/components/checkout/CheckoutSummary";
 
@@ -68,6 +69,13 @@ export default async function CheckoutPage() {
       <main id="main" className="pt-[calc(var(--header-h)+2rem)]">
         <div className="px-gutter pb-24 lg:px-gutter-lg">
           <h1 className="headline text-display-sm lg:text-display-md">Checkout</h1>
+
+          {/*
+            The one page where somebody could type a real address and a real
+            phone number into a form. The warning belongs before the fields,
+            not beside them. §37.
+          */}
+          <CheckoutDemoNotice className="mt-6" />
 
           {!hasDatabase() ? (
             /*

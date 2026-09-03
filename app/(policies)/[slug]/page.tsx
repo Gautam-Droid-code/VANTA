@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { contentStore } from "@/lib/contentStore";
 import { policies, policyBySlug } from "@/data/policies";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { DemoNotice } from "@/components/DemoNotice";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
@@ -77,6 +78,13 @@ export default async function PolicyRoute({
 
       <main id="main" className="pt-[calc(var(--header-h)+2rem)]">
         <article className="mx-auto max-w-2xl px-gutter pb-20 lg:px-gutter-lg lg:pb-28">
+          {/*
+            Above the title, not below it. These pages read as authoritative by
+            their nature, so the disclaimer has to arrive before the reader has
+            started treating the words as terms. §37.
+          */}
+          <DemoNotice className="mb-10" />
+
           <header className="border-b border-ink-line pb-8">
             {/* Policy pages had no trail at all, which left them feeling like
                 orphans reached only from the footer. */}
@@ -87,27 +95,6 @@ export default async function PolicyRoute({
               {policy.intro}
             </p>
           </header>
-
-          {/*
-            Says plainly that this is placeholder text.
-
-            These pages read as authoritative by their nature — a heading, a
-            date, numbered clauses — and that is exactly why unreviewed copy
-            here is dangerous: nobody thinks to check it before launch. The
-            notice is the page's own admission, and it goes when a lawyer has
-            been through the words.
-          */}
-          <aside
-            role="note"
-            className="mt-8 border border-flare-red/40 bg-flare-red/5 px-4 py-3"
-          >
-            <p className="text-label font-bold uppercase text-flare-red">Placeholder text</p>
-            <p className="mt-2 text-sm leading-relaxed text-bone/60">
-              This page has not been reviewed by a lawyer and is not binding. Some
-              details — the registered address, GST number and retention periods —
-              are invented. Replace it before taking payments.
-            </p>
-          </aside>
 
           <div className="mt-10 space-y-10">
             {policy.sections.map((section) => (
